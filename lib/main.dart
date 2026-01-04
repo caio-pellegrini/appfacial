@@ -43,7 +43,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   
   static const Duration _noFaceTimeout = Duration(seconds: 5);
   static const Duration _exposureFeedbackDuration = Duration(milliseconds: 300);
-  static const double _exposureBoost = 1.5; // Aumenta exposição em 1.5 EV quando detecta rosto
+  static const double _exposureBoostNormal = 1.0; // Boost moderado que funciona bem em boa luz e contra luz (EV)
 
   @override
   void initState() {
@@ -174,28 +174,19 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       await _controller!.setExposurePoint(point);
       await _controller!.setFocusPoint(point);
       
-      // Aumenta exposição (offset positivo) para clarear o rosto em contraluz
+      // Aguarda um pouco para a câmera processar o ajuste automático
+      await Future.delayed(Duration(milliseconds: 150));
+      
+      // Aplica offset moderado (menor) que funciona bem tanto em boa luz quanto contra luz
+      // O setExposurePoint já fez o ajuste base, o offset apenas dá um pequeno boost
       if (_minExposureOffset != null && _maxExposureOffset != null) {
-        // Calcula offset positivo (aumenta brilho), limitado pelos valores máximos
-        double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
+        double exposureOffset = _exposureBoostNormal.clamp(_minExposureOffset!, _maxExposureOffset!);
         try {
           await _controller!.setExposureOffset(exposureOffset);
         } catch (e) {
           // Se falhar, continua sem o offset
         }
       }
-      
-      // Aplica novamente após um pequeno delay para forçar ajuste em contraluz
-      Future.delayed(Duration(milliseconds: 100), () async {
-        try {
-          await _controller?.setExposurePoint(point);
-          // Reaplica o offset também
-          if (_minExposureOffset != null && _maxExposureOffset != null) {
-            double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
-            await _controller?.setExposureOffset(exposureOffset);
-          }
-        } catch (e) {}
-      });
       
       // Feedback visual: faz a bolinha piscar (fica vermelha e maior)
       setState(() {
@@ -233,9 +224,10 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       await _controller!.setExposurePoint(centerPoint);
       await _controller!.setFocusPoint(centerPoint);
       
-      // Aumenta exposição também no fallback (para clarear quando não detecta rosto)
+      // Aplica offset moderado no fallback também
+      await Future.delayed(Duration(milliseconds: 150));
       if (_minExposureOffset != null && _maxExposureOffset != null) {
-        double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
+        double exposureOffset = _exposureBoostNormal.clamp(_minExposureOffset!, _maxExposureOffset!);
         try {
           await _controller!.setExposureOffset(exposureOffset);
         } catch (e) {}
