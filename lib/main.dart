@@ -142,6 +142,9 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   InputImage? _inputImageFromCameraImage(CameraImage image) {
+    // Para Android frontal em portrait, a imagem vem rotacionada 270°
+    // Quando o dispositivo está horizontal, a rotação pode ser diferente,
+    // mas como o app está travado em portrait, mantemos a rotação fixa
     final rotation = Platform.isAndroid ? InputImageRotation.rotation270deg : InputImageRotation.rotation0deg;
     
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
@@ -262,10 +265,18 @@ class FacePainter extends CustomPainter {
       left = widgetSize.width - left - width;
     }
 
-    Rect finalRect = Rect.fromLTWH(left, top, width, height);
-    
-    canvas.drawRect(finalRect, paintRect);
-    canvas.drawCircle(finalRect.center, 5.0, paintDot);
+    // Garante que o retângulo está dentro dos limites da tela
+    left = left.clamp(0.0, widgetSize.width);
+    top = top.clamp(0.0, widgetSize.height);
+    width = width.clamp(0.0, widgetSize.width - left);
+    height = height.clamp(0.0, widgetSize.height - top);
+
+    // Só desenha se o retângulo tem tamanho válido
+    if (width > 0 && height > 0) {
+      Rect finalRect = Rect.fromLTWH(left, top, width, height);
+      canvas.drawRect(finalRect, paintRect);
+      canvas.drawCircle(finalRect.center, 5.0, paintDot);
+    }
   }
 
   Size _getDisplaySize() {
