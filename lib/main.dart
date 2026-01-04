@@ -32,12 +32,18 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   bool _isProcessing = false;
   CameraDescription? _cameraDescription;
   Timer? _noFaceTimer;
+  bool _exposureJustApplied = false;
+  Timer? _exposureFeedbackTimer;
+  double? _minExposureOffset;
+  double? _maxExposureOffset;
 
   Rect? _faceRectRaw;
   Size? _imageSizeRaw;
   InputImageRotation _currentRotation = InputImageRotation.rotation0deg;
   
   static const Duration _noFaceTimeout = Duration(seconds: 5);
+  static const Duration _exposureFeedbackDuration = Duration(milliseconds: 300);
+  static const double _exposureBoost = 1.5; // Aumenta exposição em 1.5 EV quando detecta rosto
 
   @override
   void initState() {
@@ -71,6 +77,14 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     try {
       await _controller!.initialize();
       if (mounted) {
+        // Obtém os limites de exposição suportados pela câmera
+        try {
+          _minExposureOffset = await _controller!.getMinExposureOffset();
+          _maxExposureOffset = await _controller!.getMaxExposureOffset();
+        } catch (e) {
+          // Algumas câmeras podem não suportar exposure offset
+          print("Exposure offset não suportado: $e");
+        }
         setState(() {});
         _controller!.startImageStream(_processCameraImage);
       }
@@ -120,6 +134,12 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         try {
           await _controller?.setExposurePoint(null);
           await _controller?.setFocusPoint(null);
+          // Reseta o offset de exposição quando não há rosto
+          if (_minExposureOffset != null && _maxExposureOffset != null) {
+            try {
+              await _controller?.setExposureOffset(0.0);
+            } catch (e) {}
+          }
         } catch(e) {}
       }
     } catch (e) {
@@ -149,8 +169,46 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     try {
       await _controller!.setExposureMode(ExposureMode.auto);
       await _controller!.setFocusMode(FocusMode.auto);
+      
+      // Aplica exposição e foco no ponto do rosto
       await _controller!.setExposurePoint(point);
       await _controller!.setFocusPoint(point);
+      
+      // Aumenta exposição (offset positivo) para clarear o rosto em contraluz
+      if (_minExposureOffset != null && _maxExposureOffset != null) {
+        // Calcula offset positivo (aumenta brilho), limitado pelos valores máximos
+        double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
+        try {
+          await _controller!.setExposureOffset(exposureOffset);
+        } catch (e) {
+          // Se falhar, continua sem o offset
+        }
+      }
+      
+      // Aplica novamente após um pequeno delay para forçar ajuste em contraluz
+      Future.delayed(Duration(milliseconds: 100), () async {
+        try {
+          await _controller?.setExposurePoint(point);
+          // Reaplica o offset também
+          if (_minExposureOffset != null && _maxExposureOffset != null) {
+            double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
+            await _controller?.setExposureOffset(exposureOffset);
+          }
+        } catch (e) {}
+      });
+      
+      // Feedback visual: faz a bolinha piscar (fica vermelha e maior)
+      setState(() {
+        _exposureJustApplied = true;
+      });
+      _exposureFeedbackTimer?.cancel();
+      _exposureFeedbackTimer = Timer(_exposureFeedbackDuration, () {
+        if (mounted) {
+          setState(() {
+            _exposureJustApplied = false;
+          });
+        }
+      });
     } catch (e) {}
   }
 
@@ -174,6 +232,27 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       await _controller!.setFocusMode(FocusMode.auto);
       await _controller!.setExposurePoint(centerPoint);
       await _controller!.setFocusPoint(centerPoint);
+      
+      // Aumenta exposição também no fallback (para clarear quando não detecta rosto)
+      if (_minExposureOffset != null && _maxExposureOffset != null) {
+        double exposureOffset = _exposureBoost.clamp(_minExposureOffset!, _maxExposureOffset!);
+        try {
+          await _controller!.setExposureOffset(exposureOffset);
+        } catch (e) {}
+      }
+      
+      // Feedback visual também no fallback
+      setState(() {
+        _exposureJustApplied = true;
+      });
+      _exposureFeedbackTimer?.cancel();
+      _exposureFeedbackTimer = Timer(_exposureFeedbackDuration, () {
+        if (mounted) {
+          setState(() {
+            _exposureJustApplied = false;
+          });
+        }
+      });
     } catch (e) {}
   }
 
@@ -206,6 +285,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   @override
   void dispose() {
     _noFaceTimer?.cancel();
+    _exposureFeedbackTimer?.cancel();
     _controller?.dispose();
     _faceDetector.close();
     super.dispose();
@@ -235,6 +315,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                     widgetSize: widgetSize,
                     isFrontCamera: _cameraDescription!.lensDirection == CameraLensDirection.front,
                     rotation: _currentRotation,
+                    exposureJustApplied: _exposureJustApplied,
                   ),
                   child: Container(),
                 ),
@@ -252,6 +333,7 @@ class FacePainter extends CustomPainter {
   final Size widgetSize;
   final bool isFrontCamera;
   final InputImageRotation rotation;
+  final bool exposureJustApplied;
 
   FacePainter({
     required this.faceRectRaw,
@@ -259,6 +341,7 @@ class FacePainter extends CustomPainter {
     required this.widgetSize,
     required this.isFrontCamera,
     required this.rotation,
+    required this.exposureJustApplied,
   });
 
   @override
@@ -268,9 +351,12 @@ class FacePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
+    // Bolinha muda de cor/tamanho quando exposição é aplicada
     final Paint paintDot = Paint()
-      ..color = Colors.yellow
+      ..color = exposureJustApplied ? Colors.red : Colors.yellow
       ..style = PaintingStyle.fill;
+    
+    final double dotRadius = exposureJustApplied ? 5.0 : 3.0;
 
     // ASSUMINDO: O ML Kit retorna coordenadas JÁ no espaço rotacionado (após aplicar rotation)
     // quando você passa rotation no InputImageMetadata
@@ -312,7 +398,7 @@ class FacePainter extends CustomPainter {
     if (width > 0 && height > 0) {
       Rect finalRect = Rect.fromLTWH(left, top, width, height);
       canvas.drawRect(finalRect, paintRect);
-      canvas.drawCircle(finalRect.center, 5.0, paintDot);
+      canvas.drawCircle(finalRect.center, dotRadius, paintDot);
     }
   }
 
@@ -329,6 +415,7 @@ class FacePainter extends CustomPainter {
   @override
   bool shouldRepaint(FacePainter oldDelegate) {
     return oldDelegate.faceRectRaw != faceRectRaw ||
-           oldDelegate.widgetSize != widgetSize;
+           oldDelegate.widgetSize != widgetSize ||
+           oldDelegate.exposureJustApplied != exposureJustApplied;
   }
 }
