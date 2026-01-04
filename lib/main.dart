@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,9 +43,11 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   Size? _imageSizeRaw;
   InputImageRotation _currentRotation = InputImageRotation.rotation0deg;
   
+  ExposureModeConfig _exposureMode = ExposureModeConfig.manual;
+  double _exposureOffset = 1.0;
+  
   static const Duration _noFaceTimeout = Duration(seconds: 5);
   static const Duration _exposureFeedbackDuration = Duration(milliseconds: 300);
-  static const double _exposureBoostNormal = 1.0; // Boost moderado que funciona bem em boa luz e contra luz (EV)
 
   @override
   void initState() {
@@ -56,7 +60,56 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       minFaceSize: 0.1, // Reduz o tamanho mínimo do rosto (mais sensível)
     );
     _faceDetector = FaceDetector(options: options);
+    _loadSettings();
     _initializeCamera();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeIndex = prefs.getInt('exposureMode') ?? ExposureModeConfig.manual.index;
+    final offset = prefs.getDouble('exposureOffset') ?? 1.0;
+    
+    setState(() {
+      _exposureMode = ExposureModeConfig.values[modeIndex];
+      _exposureOffset = offset;
+    });
+  }
+
+  Future<void> _openSettings() async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SettingsScreen(
+          currentMode: _exposureMode,
+          currentOffset: _exposureOffset,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      final newMode = result['mode'] as ExposureModeConfig;
+      final newOffset = result['offset'] as double;
+      
+      // Se mudou de Manual para Auto/Off, reseta o offset
+      if (_exposureMode == ExposureModeConfig.manual && 
+          newMode != ExposureModeConfig.manual) {
+        await _resetExposureOffset();
+      }
+      
+      setState(() {
+        _exposureMode = newMode;
+        _exposureOffset = newOffset;
+      });
+    }
+  }
+
+  Future<void> _resetExposureOffset() async {
+    if (_controller == null) return;
+    if (_minExposureOffset == null || _maxExposureOffset == null) return;
+    
+    try {
+      await _controller!.setExposureOffset(0.0);
+    } catch (e) {}
   }
 
   void _initializeCamera() async {
@@ -128,19 +181,21 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
           });
         }
         
-        // Inicia timer de fallback se não há rosto
-        _startNoFaceTimer();
-        
-        try {
-          await _controller?.setExposurePoint(null);
-          await _controller?.setFocusPoint(null);
-          // Reseta o offset de exposição quando não há rosto
-          if (_minExposureOffset != null && _maxExposureOffset != null) {
-            try {
-              await _controller?.setExposureOffset(0.0);
-            } catch (e) {}
-          }
-        } catch(e) {}
+        // Inicia timer de fallback se não há rosto (só se modo não for Off)
+        if (_exposureMode != ExposureModeConfig.off) {
+          _startNoFaceTimer();
+          
+          try {
+            await _controller?.setExposurePoint(null);
+            await _controller?.setFocusPoint(null);
+            // Reseta o offset de exposição quando não há rosto
+            if (_minExposureOffset != null && _maxExposureOffset != null) {
+              try {
+                await _controller?.setExposureOffset(0.0);
+              } catch (e) {}
+            }
+          } catch(e) {}
+        }
       }
     } catch (e) {
       print("Erro: $e");
@@ -151,6 +206,11 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   Future<void> _adjustHardwareFocus(Rect faceRect, CameraImage image) async {
     if (_controller == null) return;
+    
+    // Se o modo está Off, não faz nada (incluindo feedback visual)
+    if (_exposureMode == ExposureModeConfig.off) {
+      return;
+    }
     
     double centerX = faceRect.center.dx;
     double centerY = faceRect.center.dy;
@@ -174,17 +234,25 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       await _controller!.setExposurePoint(point);
       await _controller!.setFocusPoint(point);
       
-      // Aguarda um pouco para a câmera processar o ajuste automático
-      await Future.delayed(Duration(milliseconds: 150));
-      
-      // Aplica offset moderado (menor) que funciona bem tanto em boa luz quanto contra luz
-      // O setExposurePoint já fez o ajuste base, o offset apenas dá um pequeno boost
-      if (_minExposureOffset != null && _maxExposureOffset != null) {
-        double exposureOffset = _exposureBoostNormal.clamp(_minExposureOffset!, _maxExposureOffset!);
-        try {
-          await _controller!.setExposureOffset(exposureOffset);
-        } catch (e) {
-          // Se falhar, continua sem o offset
+      // Se modo Manual, aplica offset após delay
+      if (_exposureMode == ExposureModeConfig.manual) {
+        await Future.delayed(Duration(milliseconds: 150));
+        
+        if (_minExposureOffset != null && _maxExposureOffset != null) {
+          double exposureOffset = _exposureOffset.clamp(_minExposureOffset!, _maxExposureOffset!);
+          try {
+            await _controller!.setExposureOffset(exposureOffset);
+          } catch (e) {
+            // Se falhar, continua sem o offset
+          }
+        }
+      } else if (_exposureMode == ExposureModeConfig.auto) {
+        // No modo Auto, garante que o offset está resetado (0.0)
+        await Future.delayed(Duration(milliseconds: 150));
+        if (_minExposureOffset != null && _maxExposureOffset != null) {
+          try {
+            await _controller!.setExposureOffset(0.0);
+          } catch (e) {}
         }
       }
       
@@ -215,6 +283,11 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   Future<void> _adjustExposureToCenter() async {
     if (_controller == null) return;
     
+    // Se o modo está Off, não faz nada
+    if (_exposureMode == ExposureModeConfig.off) {
+      return;
+    }
+    
     try {
       // Ponto central da tela (0.5, 0.5)
       final centerPoint = Offset(0.5, 0.5);
@@ -224,13 +297,24 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       await _controller!.setExposurePoint(centerPoint);
       await _controller!.setFocusPoint(centerPoint);
       
-      // Aplica offset moderado no fallback também
+      // Aguarda um pouco para a câmera processar o ajuste
       await Future.delayed(Duration(milliseconds: 150));
-      if (_minExposureOffset != null && _maxExposureOffset != null) {
-        double exposureOffset = _exposureBoostNormal.clamp(_minExposureOffset!, _maxExposureOffset!);
-        try {
-          await _controller!.setExposureOffset(exposureOffset);
-        } catch (e) {}
+      
+      // Se modo Manual, aplica offset configurado pelo usuário
+      if (_exposureMode == ExposureModeConfig.manual) {
+        if (_minExposureOffset != null && _maxExposureOffset != null) {
+          double exposureOffset = _exposureOffset.clamp(_minExposureOffset!, _maxExposureOffset!);
+          try {
+            await _controller!.setExposureOffset(exposureOffset);
+          } catch (e) {}
+        }
+      } else if (_exposureMode == ExposureModeConfig.auto) {
+        // No modo Auto, garante que o offset está resetado (0.0)
+        if (_minExposureOffset != null && _maxExposureOffset != null) {
+          try {
+            await _controller!.setExposureOffset(0.0);
+          } catch (e) {}
+        }
       }
       
       // Feedback visual também no fallback
@@ -311,6 +395,18 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                   ),
                   child: Container(),
                 ),
+              // Ícone de configurações no canto superior direito
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                right: 8,
+                child: SafeArea(
+                  child: IconButton(
+                    icon: Icon(Icons.settings, color: Colors.white, size: 28),
+                    onPressed: _openSettings,
+                    tooltip: 'Configurações',
+                  ),
+                ),
+              ),
             ],
           );
         }
