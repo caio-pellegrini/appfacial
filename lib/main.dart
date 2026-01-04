@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:camera/camera.dart';
@@ -30,18 +31,23 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   late FaceDetector _faceDetector;
   bool _isProcessing = false;
   CameraDescription? _cameraDescription;
+  Timer? _noFaceTimer;
 
   Rect? _faceRectRaw;
   Size? _imageSizeRaw;
   InputImageRotation _currentRotation = InputImageRotation.rotation0deg;
+  
+  static const Duration _noFaceTimeout = Duration(seconds: 5);
 
   @override
   void initState() {
     super.initState();
+    // Opções mais sensíveis para detectar rostos mesmo em condições adversas
     final options = FaceDetectorOptions(
-      performanceMode: FaceDetectorMode.fast,
+      performanceMode: FaceDetectorMode.accurate, // Mais preciso, detecta melhor contra luz
       enableContours: false,
       enableClassification: false,
+      minFaceSize: 0.1, // Reduz o tamanho mínimo do rosto (mais sensível)
     );
     _faceDetector = FaceDetector(options: options);
     _initializeCamera();
@@ -89,6 +95,9 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       if (faces.isNotEmpty) {
         final face = faces.first;
         
+        // Cancela o timer de fallback
+        _noFaceTimer?.cancel();
+        
         // Atualiza a UI PRIMEIRO (sem esperar o foco)
         setState(() {
           _faceRectRaw = face.boundingBox;
@@ -104,6 +113,10 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
             _faceRectRaw = null;
           });
         }
+        
+        // Inicia timer de fallback se não há rosto
+        _startNoFaceTimer();
+        
         try {
           await _controller?.setExposurePoint(null);
           await _controller?.setFocusPoint(null);
@@ -141,6 +154,29 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     } catch (e) {}
   }
 
+  void _startNoFaceTimer() {
+    _noFaceTimer?.cancel();
+    
+    _noFaceTimer = Timer(_noFaceTimeout, () {
+      // Se não detectou rosto por X segundos, ajusta exposição para o centro
+      _adjustExposureToCenter();
+    });
+  }
+
+  Future<void> _adjustExposureToCenter() async {
+    if (_controller == null) return;
+    
+    try {
+      // Ponto central da tela (0.5, 0.5)
+      final centerPoint = Offset(0.5, 0.5);
+      
+      await _controller!.setExposureMode(ExposureMode.auto);
+      await _controller!.setFocusMode(FocusMode.auto);
+      await _controller!.setExposurePoint(centerPoint);
+      await _controller!.setFocusPoint(centerPoint);
+    } catch (e) {}
+  }
+
   InputImage? _inputImageFromCameraImage(CameraImage image) {
     // Para Android frontal em portrait, a imagem vem rotacionada 270°
     // Quando o dispositivo está horizontal, a rotação pode ser diferente,
@@ -169,6 +205,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   @override
   void dispose() {
+    _noFaceTimer?.cancel();
     _controller?.dispose();
     _faceDetector.close();
     super.dispose();
