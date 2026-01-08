@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum ExposureModeConfig {
-  off,
-  auto,
-  manual,
-}
+enum ExposureModeConfig { off, auto, manual }
+
+enum AppOrientation { portrait, landscape }
 
 class SettingsScreen extends StatefulWidget {
   final ExposureModeConfig currentMode;
   final double currentOffset;
+  final AppOrientation currentOrientation;
 
   const SettingsScreen({
     Key? key,
     required this.currentMode,
     required this.currentOffset,
+    required this.currentOrientation,
   }) : super(key: key);
 
   @override
@@ -24,23 +25,27 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late ExposureModeConfig _selectedMode;
   late double _offsetValue;
+  late AppOrientation _selectedOrientation;
 
   @override
   void initState() {
     super.initState();
     _selectedMode = widget.currentMode;
     _offsetValue = widget.currentOffset;
+    _selectedOrientation = widget.currentOrientation;
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('exposureMode', _selectedMode.index);
     await prefs.setDouble('exposureOffset', _offsetValue);
-    
+    await prefs.setInt('appOrientation', _selectedOrientation.index);
+
     if (mounted) {
       Navigator.pop(context, {
         'mode': _selectedMode,
         'offset': _offsetValue,
+        'orientation': _selectedOrientation,
       });
     }
   }
@@ -51,10 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.grey[900],
-        title: Text(
-          'Configurações',
-          style: TextStyle(color: Colors.white),
-        ),
+        title: Text('Configurações', style: TextStyle(color: Colors.white)),
         iconTheme: IconThemeData(color: Colors.white),
       ),
       body: ListView(
@@ -69,7 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           SizedBox(height: 16),
-          
+
           // Opção Off
           RadioListTile<ExposureModeConfig>(
             title: Text(
@@ -89,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               });
             },
           ),
-          
+
           // Opção Auto
           RadioListTile<ExposureModeConfig>(
             title: Text(
@@ -109,13 +111,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               });
             },
           ),
-          
+
           // Opção Manual
           RadioListTile<ExposureModeConfig>(
-            title: Text(
-              'Manual',
-              style: TextStyle(color: Colors.white),
-            ),
+            title: Text('Manual', style: TextStyle(color: Colors.white)),
             subtitle: Text(
               'Ajuste automático + offset configurável',
               style: TextStyle(color: Colors.grey),
@@ -129,7 +128,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               });
             },
           ),
-          
+
           // Slider para offset (só aparece se Manual estiver selecionado)
           if (_selectedMode == ExposureModeConfig.manual) ...[
             SizedBox(height: 32),
@@ -163,7 +162,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ],
-          
+
+          SizedBox(height: 32),
+          Divider(color: Colors.grey[800], height: 1),
+          SizedBox(height: 32),
+          Text(
+            'Orientação',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 16),
+
+          // Opção Portrait
+          RadioListTile<AppOrientation>(
+            title: Text(
+              'Retrato (Portrait)',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              'Orientação vertical',
+              style: TextStyle(color: Colors.grey),
+            ),
+            value: AppOrientation.portrait,
+            groupValue: _selectedOrientation,
+            activeColor: Colors.blue,
+            onChanged: (value) {
+              setState(() {
+                _selectedOrientation = value!;
+              });
+            },
+          ),
+
+          // Opção Landscape
+          RadioListTile<AppOrientation>(
+            title: Text(
+              'Paisagem (Landscape)',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              'Orientação horizontal',
+              style: TextStyle(color: Colors.grey),
+            ),
+            value: AppOrientation.landscape,
+            groupValue: _selectedOrientation,
+            activeColor: Colors.blue,
+            onChanged: (value) {
+              setState(() {
+                _selectedOrientation = value!;
+              });
+            },
+          ),
+
           SizedBox(height: 32),
           ElevatedButton(
             onPressed: _saveSettings,
@@ -171,14 +223,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               backgroundColor: Colors.blue,
               padding: EdgeInsets.symmetric(vertical: 16),
             ),
-            child: Text(
-              'Salvar',
-              style: TextStyle(fontSize: 16),
-            ),
+            child: Text('Salvar', style: TextStyle(fontSize: 16)),
           ),
         ],
       ),
     );
   }
 }
-
