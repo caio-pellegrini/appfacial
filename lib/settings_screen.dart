@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum ExposureModeConfig { off, auto, manual }
+enum BrightnessModeConfig { off, auto, manual }
 
 enum AppOrientation { portrait, landscape }
 
 class SettingsScreen extends StatefulWidget {
-  final ExposureModeConfig currentMode;
+  final BrightnessModeConfig currentMode;
   final double currentOffset;
   final AppOrientation currentOrientation;
 
@@ -23,7 +23,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late ExposureModeConfig _selectedMode;
+  late BrightnessModeConfig _selectedMode;
   late double _offsetValue;
   late AppOrientation _selectedOrientation;
 
@@ -37,7 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('exposureMode', _selectedMode.index);
+    await prefs.setInt('brightnessMode', _selectedMode.index);
     await prefs.setDouble('brightnessPercent', _offsetValue);
     await prefs.setInt('appOrientation', _selectedOrientation.index);
 
@@ -63,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: EdgeInsets.all(16),
         children: [
           Text(
-            'Modo de Exposição',
+            'Modo de Brilho',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -73,16 +73,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SizedBox(height: 16),
 
           // Opção Off
-          RadioListTile<ExposureModeConfig>(
+          RadioListTile<BrightnessModeConfig>(
             title: Text(
               'Desligado (Off)',
               style: TextStyle(color: Colors.white),
             ),
             subtitle: Text(
-              'Não ajusta exposição automaticamente',
+              'Não ajusta brilho automaticamente',
               style: TextStyle(color: Colors.grey),
             ),
-            value: ExposureModeConfig.off,
+            value: BrightnessModeConfig.off,
             groupValue: _selectedMode,
             activeColor: Colors.blue,
             onChanged: (value) {
@@ -93,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // Opção Auto
-          RadioListTile<ExposureModeConfig>(
+          RadioListTile<BrightnessModeConfig>(
             title: Text(
               'Automático (Auto)',
               style: TextStyle(color: Colors.white),
@@ -102,7 +102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Ajuste automático da câmera apenas',
               style: TextStyle(color: Colors.grey),
             ),
-            value: ExposureModeConfig.auto,
+            value: BrightnessModeConfig.auto,
             groupValue: _selectedMode,
             activeColor: Colors.blue,
             onChanged: (value) {
@@ -113,13 +113,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // Opção Manual
-          RadioListTile<ExposureModeConfig>(
+          RadioListTile<BrightnessModeConfig>(
             title: Text('Manual', style: TextStyle(color: Colors.white)),
             subtitle: Text(
-              'Ajuste automático + offset configurável',
+              'Ajuste automático + brilho configurável',
               style: TextStyle(color: Colors.grey),
             ),
-            value: ExposureModeConfig.manual,
+            value: BrightnessModeConfig.manual,
             groupValue: _selectedMode,
             activeColor: Colors.blue,
             onChanged: (value) {
@@ -130,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           // Slider para brilho (só aparece se Manual estiver selecionado)
-          if (_selectedMode == ExposureModeConfig.manual) ...[
+          if (_selectedMode == BrightnessModeConfig.manual) ...[
             SizedBox(height: 32),
             Text(
               'Brilho: ${_offsetValue.toStringAsFixed(0)}%',

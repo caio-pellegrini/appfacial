@@ -93,14 +93,14 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   late FaceDetector _faceDetector;
   bool _isProcessing = false;
   Timer? _noFaceTimer;
-  bool _exposureJustApplied = false;
-  Timer? _exposureFeedbackTimer;
+  bool _brightnessJustApplied = false;
+  Timer? _brightnessFeedbackTimer;
 
   Rect? _faceRectRaw;
   Size? _imageSizeRaw;
   InputImageRotation _currentRotation = InputImageRotation.rotation0deg;
 
-  ExposureModeConfig _exposureMode = ExposureModeConfig.auto;
+  BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
   double _brightnessPercent = 0.0; // Brightness em percentual: -100% a +100% (padrão 0% = neutro)
   AppOrientation _currentOrientation = AppOrientation.portrait;
   
@@ -110,7 +110,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   static const Duration _noFaceTimeout = Duration(seconds: 5);
-  static const Duration _exposureFeedbackDuration = Duration(milliseconds: 300);
+  static const Duration _brightnessFeedbackDuration = Duration(milliseconds: 300);
 
   @override
   void initState() {
@@ -129,31 +129,14 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final modeIndex =
-        prefs.getInt('exposureMode') ?? ExposureModeConfig.auto.index;
-    // Migração: converte valores antigos para o novo sistema de percentual
-    final oldOffset = prefs.getDouble('exposureOffset');
-    final oldBrightness = prefs.getDouble('brightness');
-    
-    // Se existe brightness antigo (0.0-1.0), converte para percentual
-    // Se existe exposureOffset antigo, usa 0% como padrão
-    double brightnessPercent = 0.0; // Padrão: 0% (neutro)
-    if (oldBrightness != null) {
-      // Converte de 0.0-1.0 para -100 a +100
-      brightnessPercent = (oldBrightness * 200.0) - 100.0;
-    } else if (oldOffset != null) {
-      // Se tinha offset antigo, usa 0% como padrão (neutro)
-      brightnessPercent = 0.0;
-    }
-    
-    // Carrega o percentual salvo ou usa o padrão 0%
-    brightnessPercent = prefs.getDouble('brightnessPercent') ?? brightnessPercent;
+    final modeIndex = prefs.getInt('brightnessMode') ?? BrightnessModeConfig.auto.index;
+    final brightnessPercent = prefs.getDouble('brightnessPercent') ?? 0.0;
     
     final orientationIndex =
         prefs.getInt('appOrientation') ?? AppOrientation.portrait.index;
 
     setState(() {
-      _exposureMode = ExposureModeConfig.values[modeIndex];
+      _brightnessMode = BrightnessModeConfig.values[modeIndex];
       _brightnessPercent = brightnessPercent.clamp(-100.0, 100.0);
       _currentOrientation = AppOrientation.values[orientationIndex];
     });
@@ -178,7 +161,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       context,
       MaterialPageRoute(
         builder: (context) => SettingsScreen(
-          currentMode: _exposureMode,
+          currentMode: _brightnessMode,
           currentOffset: _brightnessPercent,
           currentOrientation: _currentOrientation,
         ),
@@ -186,8 +169,8 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     );
 
     if (result != null) {
-      final newMode = result['mode'] as ExposureModeConfig;
-      final newBrightness = result['offset'] as double; // Agora é brightness
+      final newMode = result['mode'] as BrightnessModeConfig;
+      final newBrightness = result['offset'] as double;
       final newOrientation = result['orientation'] as AppOrientation;
 
       // Se mudou a orientação, aplica a nova orientação
@@ -196,7 +179,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       }
 
       setState(() {
-        _exposureMode = newMode;
+        _brightnessMode = newMode;
         _brightnessPercent = newBrightness.clamp(-100.0, 100.0);
         _currentOrientation = newOrientation;
       });
@@ -205,10 +188,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
 
   Future<void> _processCameraImage(AnalysisImage img) async {
-    if (_isProcessing) {
-      print('⏸️ _processCameraImage: Já está processando, ignorando frame');
-      return;
-    }
+    if (_isProcessing) return;
     _isProcessing = true;
 
     try {
@@ -220,27 +200,8 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         final face = faces.first;
 
         // Cancela o timer de fallback
-        if (_noFaceTimer != null && _noFaceTimer!.isActive) {
-          print('⏱️ TIMER CANCELADO: Rosto detectado, cancelando fallback');
-          _noFaceTimer!.cancel();
-          _noFaceTimer = null;
-        }
-
-        print('🔍 ROSTO DETECTADO!');
-        print(
-          '🔄 InputImageRotation: ${_rotationToString(inputImage.metadata!.rotation)}',
-        );
-        print('🎯 BoundingBox do ML Kit:');
-        print(
-          '   left: ${face.boundingBox.left}, top: ${face.boundingBox.top}',
-        );
-        print(
-          '   width: ${face.boundingBox.width}, height: ${face.boundingBox.height}',
-        );
-        print(
-          '   center: (${face.boundingBox.center.dx}, ${face.boundingBox.center.dy})',
-        );
-        print('');
+        _noFaceTimer?.cancel();
+        _noFaceTimer = null;
 
         // Atualiza a UI PRIMEIRO (sem esperar o foco)
         setState(() {
@@ -259,18 +220,11 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         }
 
         // Inicia timer de fallback se não há rosto (só se modo não for Off)
-        // MAS: só inicia se não houver um timer já ativo (evita resetar a cada frame)
-        print('🚫 SEM ROSTO: Modo atual=${_exposureMode.name}');
-        if (_exposureMode != ExposureModeConfig.off) {
-          // Só inicia um novo timer se não houver um timer ativo
+        // e se não houver um timer já ativo (evita resetar a cada frame)
+        if (_brightnessMode != BrightnessModeConfig.off) {
           if (_noFaceTimer == null || !_noFaceTimer!.isActive) {
-            print('⏱️ INICIANDO TIMER: Fallback será acionado em ${_noFaceTimeout.inSeconds} segundos');
             _startNoFaceTimer();
-          } else {
-            print('⏱️ Timer já está ativo, mantendo...');
           }
-        } else {
-          print('⏱️ TIMER NÃO INICIADO: Modo está Off');
         }
       }
     } catch (e) {
@@ -281,10 +235,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   Future<void> _adjustHardwareFocus(Rect faceRect, Size imageSize) async {
-    // Se o modo está Off, não faz nada (incluindo feedback visual)
-    if (_exposureMode == ExposureModeConfig.off) {
-      return;
-    }
+    if (_brightnessMode == BrightnessModeConfig.off) return;
 
     // Calcula centro da face relativo à imagem (0.0 - 1.0)
     double centerX = faceRect.center.dx;
@@ -297,31 +248,25 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
     if (Platform.isAndroid) {
       if (isLandscape) {
-        // Landscape: imagem vem com rotação diferente
         double tempX = x;
         x = 1.0 - y;
         y = tempX;
       } else {
-        // Portrait: rotação 270deg (Android frontal)
         double tempX = x;
         x = y;
         y = 1.0 - tempX;
       }
     } else if (Platform.isIOS) {
       if (isLandscape) {
-        // iOS em landscape pode precisar de ajuste
         double tempX = x;
         x = y;
         y = 1.0 - tempX;
       }
-      // Portrait no iOS geralmente não precisa ajuste
     }
 
     final point = Offset(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
 
     try {
-      // Calcula previewSize para focusOnPoint
-      // Obtém o previewSize efetivo da câmera ou usa o tamanho da imagem
       PreviewSize previewSize;
       try {
         previewSize = await CamerawesomePlugin.getEffectivPreviewSize(0);
@@ -338,15 +283,15 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         );
       }
 
-      // Aplica foco e exposição no ponto do rosto (unificado no camerawesome)
       await CamerawesomePlugin.focusOnPoint(
         previewSize: previewSize,
         position: point,
         androidFocusSettings: null,
       );
 
-      // Se modo Manual, aplica brightness configurado
-      if (_exposureMode == ExposureModeConfig.manual) {
+      print('🎯 Foco aplicado no rosto: (${point.dx.toStringAsFixed(2)}, ${point.dy.toStringAsFixed(2)})');
+
+      if (_brightnessMode == BrightnessModeConfig.manual) {
         await Future.delayed(const Duration(milliseconds: 150));
         try {
           final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
@@ -354,8 +299,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         } catch (e) {
           print("Erro ao aplicar brightness: $e");
         }
-      } else if (_exposureMode == ExposureModeConfig.auto) {
-        // No modo Auto, reseta brightness para neutro (0.5 = 0%)
+      } else if (_brightnessMode == BrightnessModeConfig.auto) {
         await Future.delayed(const Duration(milliseconds: 150));
         try {
           await CamerawesomePlugin.setBrightness(0.5);
@@ -364,15 +308,14 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         }
       }
 
-      // Feedback visual: faz a bolinha piscar (fica vermelha e maior)
       setState(() {
-        _exposureJustApplied = true;
+        _brightnessJustApplied = true;
       });
-      _exposureFeedbackTimer?.cancel();
-      _exposureFeedbackTimer = Timer(_exposureFeedbackDuration, () {
+      _brightnessFeedbackTimer?.cancel();
+      _brightnessFeedbackTimer = Timer(_brightnessFeedbackDuration, () {
         if (mounted) {
           setState(() {
-            _exposureJustApplied = false;
+            _brightnessJustApplied = false;
           });
         }
       });
@@ -382,58 +325,17 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   void _startNoFaceTimer() {
-    final now = DateTime.now();
-    print('⏱️ _startNoFaceTimer() chamado em ${now.toString().substring(11, 19)}');
-    
-    // Cancela timer anterior apenas se existir e estiver ativo
-    if (_noFaceTimer != null && _noFaceTimer!.isActive) {
-      print('⏱️ Timer anterior estava ativo, cancelando antes de criar novo...');
-      _noFaceTimer!.cancel();
-    }
-    
-    _noFaceTimer = null; // Limpa referência
+    _noFaceTimer?.cancel();
+    _noFaceTimer = null;
 
-    final expectedExpireTime = now.add(_noFaceTimeout);
-    print('⏱️ Criando novo timer: timeout=${_noFaceTimeout.inSeconds}s | Expira em ${expectedExpireTime.toString().substring(11, 19)}');
-    
     _noFaceTimer = Timer(_noFaceTimeout, () {
-      final expireTime = DateTime.now();
-      print('═══════════════════════════════════════════════════════');
-      print('⏱️ TIMER EXPIROU! Tempo: ${expireTime.toString().substring(11, 19)}');
-      print('⏱️ Estado: modo=${_exposureMode.name} | _isProcessing=$_isProcessing | mounted=$mounted');
-      print('⏱️ Acionando _adjustExposureToCenter()...');
-      print('═══════════════════════════════════════════════════════');
-      // Limpa a referência do timer após expirar
       _noFaceTimer = null;
-      // Se não detectou rosto por X segundos, ajusta exposição para o centro
-      _adjustExposureToCenter();
+      _adjustBrightnessToCenter();
     });
-    
-    // Verifica se o timer foi criado corretamente
-    if (_noFaceTimer != null) {
-      print('⏱️ Timer criado com sucesso: isActive=${_noFaceTimer!.isActive}');
-    } else {
-      print('⏱️ ⚠️ ERRO: Timer NÃO foi criado!');
-    }
   }
 
-  Future<void> _adjustExposureToCenter() async {
-    final now = DateTime.now();
-    print('🎯 _adjustExposureToCenter() chamado em ${now.toString().substring(11, 19)}');
-    print('🎯 Estado: modo=${_exposureMode.name}, mounted=$mounted, _isProcessing=$_isProcessing');
-    
-    // Se o modo está Off, não faz nada
-    if (_exposureMode == ExposureModeConfig.off) {
-      print('🎯 ABORTANDO: Modo está Off');
-      return;
-    }
-    
-    if (!mounted) {
-      print('🎯 ABORTANDO: Widget não está montado');
-      return;
-    }
-    
-    print('🎯 Prosseguindo com fallback: aplicando exposição no centro da tela');
+  Future<void> _adjustBrightnessToCenter() async {
+    if (_brightnessMode == BrightnessModeConfig.off || !mounted) return;
 
     try {
       // Ponto central da tela (0.5, 0.5)
@@ -457,25 +359,25 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         );
       }
 
-      // Aplica foco no centro (unificado no camerawesome)
       await CamerawesomePlugin.focusOnPoint(
         previewSize: previewSize,
         position: centerPoint,
         androidFocusSettings: null,
       );
 
-      // Aguarda um pouco para a câmera processar o ajuste
+      print('🎯 Foco aplicado no centro: (${centerPoint.dx.toStringAsFixed(2)}, ${centerPoint.dy.toStringAsFixed(2)})');
+
       await Future.delayed(const Duration(milliseconds: 150));
 
       // Se modo Manual, aplica brightness configurado pelo usuário
-      if (_exposureMode == ExposureModeConfig.manual) {
+      if (_brightnessMode == BrightnessModeConfig.manual) {
         try {
           final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
           await CamerawesomePlugin.setBrightness(brightnessValue);
         } catch (e) {
           print("Erro ao aplicar brightness: $e");
         }
-      } else if (_exposureMode == ExposureModeConfig.auto) {
+      } else if (_brightnessMode == BrightnessModeConfig.auto) {
         // No modo Auto, reseta brightness para neutro (0.5 = 0%)
         try {
           await CamerawesomePlugin.setBrightness(0.5);
@@ -486,44 +388,25 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
       // Feedback visual também no fallback
       setState(() {
-        _exposureJustApplied = true;
+        _brightnessJustApplied = true;
       });
-      _exposureFeedbackTimer?.cancel();
-      _exposureFeedbackTimer = Timer(_exposureFeedbackDuration, () {
+      _brightnessFeedbackTimer?.cancel();
+      _brightnessFeedbackTimer = Timer(_brightnessFeedbackDuration, () {
         if (mounted) {
           setState(() {
-            _exposureJustApplied = false;
+            _brightnessJustApplied = false;
           });
         }
       });
     } catch (e) {
-      print("Erro ao ajustar exposição para centro: $e");
-    }
-  }
-
-
-  String _rotationToString(InputImageRotation rotation) {
-    switch (rotation) {
-      case InputImageRotation.rotation0deg:
-        return '0°';
-      case InputImageRotation.rotation90deg:
-        return '90°';
-      case InputImageRotation.rotation180deg:
-        return '180°';
-      case InputImageRotation.rotation270deg:
-        return '270°';
+      print("Erro ao ajustar brilho para centro: $e");
     }
   }
 
   @override
   void dispose() {
-    print('🗑️ dispose() chamado: cancelando timers');
-    if (_noFaceTimer != null && _noFaceTimer!.isActive) {
-      print('🗑️ Cancelando _noFaceTimer ativo');
-      _noFaceTimer!.cancel();
-      _noFaceTimer = null;
-    }
-    _exposureFeedbackTimer?.cancel();
+    _noFaceTimer?.cancel();
+    _brightnessFeedbackTimer?.cancel();
     _faceDetector.close();
     super.dispose();
   }
@@ -561,7 +444,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                 },
               ),
               if ((_faceRectRaw != null && _imageSizeRaw != null) || 
-                  (_exposureJustApplied && _imageSizeRaw != null))
+                  (_brightnessJustApplied && _imageSizeRaw != null))
                 CustomPaint(
                   painter: FacePainter(
                     faceRectRaw: _faceRectRaw,
@@ -571,7 +454,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                     rotation: _currentRotation,
                     orientation: _currentOrientation,
                     devicePhysicalOrientation: deviceOrientation,
-                    exposureJustApplied: _exposureJustApplied,
+                    brightnessJustApplied: _brightnessJustApplied,
                   ),
                   child: Container(),
                 ),
@@ -603,7 +486,7 @@ class FacePainter extends CustomPainter {
   final InputImageRotation rotation;
   final AppOrientation orientation;
   final Orientation devicePhysicalOrientation;
-  final bool exposureJustApplied;
+  final bool brightnessJustApplied;
 
   FacePainter({
     required this.faceRectRaw,
@@ -613,7 +496,7 @@ class FacePainter extends CustomPainter {
     required this.rotation,
     required this.orientation,
     required this.devicePhysicalOrientation,
-    required this.exposureJustApplied,
+    required this.brightnessJustApplied,
   });
 
   @override
@@ -623,15 +506,15 @@ class FacePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
-    // Bolinha muda de cor/tamanho quando exposição é aplicada
+    // Bolinha muda de cor/tamanho quando brilho é aplicado
     final Paint paintDot = Paint()
-      ..color = exposureJustApplied ? Colors.red : Colors.yellow
+      ..color = brightnessJustApplied ? Colors.red : Colors.yellow
       ..style = PaintingStyle.fill;
 
-    final double dotRadius = exposureJustApplied ? 5.0 : 3.0;
+    final double dotRadius = brightnessJustApplied ? 5.0 : 3.0;
 
-    // Se não há rosto mas exposição foi aplicada (fallback), desenha no centro
-    if (faceRectRaw == null && exposureJustApplied) {
+    // Se não há rosto mas brilho foi aplicado (fallback), desenha no centro
+    if (faceRectRaw == null && brightnessJustApplied) {
       final centerPoint = Offset(widgetSize.width / 2, widgetSize.height / 2);
       canvas.drawCircle(centerPoint, dotRadius, paintDot);
       print('🎯 FacePainter: Desenhando bolinha no centro da tela (fallback)');
@@ -750,9 +633,7 @@ class FacePainter extends CustomPainter {
       canvas.drawRect(finalRect, paintRect);
       canvas.drawCircle(finalRect.center, dotRadius, paintDot);
     } else {
-      print(
-        '❌ Retângulo NÃO desenhado: width=$width ou height=$height é inválido!',
-      );
+      print('❌ Retângulo NÃO desenhado: width=$width ou height=$height é inválido!');
     }
   }
 
@@ -827,6 +708,6 @@ class FacePainter extends CustomPainter {
     return oldDelegate.faceRectRaw != faceRectRaw ||
         oldDelegate.widgetSize != widgetSize ||
         oldDelegate.orientation != orientation ||
-        oldDelegate.exposureJustApplied != exposureJustApplied;
+        oldDelegate.brightnessJustApplied != brightnessJustApplied;
   }
 }
