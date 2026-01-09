@@ -38,7 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('exposureMode', _selectedMode.index);
-    await prefs.setDouble('exposureOffset', _offsetValue);
+    await prefs.setDouble('brightnessPercent', _offsetValue);
     await prefs.setInt('appOrientation', _selectedOrientation.index);
 
     if (mounted) {
@@ -129,11 +129,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
 
-          // Slider para offset (só aparece se Manual estiver selecionado)
+          // Slider para brilho (só aparece se Manual estiver selecionado)
           if (_selectedMode == ExposureModeConfig.manual) ...[
             SizedBox(height: 32),
             Text(
-              'Offset de Exposição: ${_offsetValue.toStringAsFixed(1)} EV',
+              'Brilho: ${_offsetValue.toStringAsFixed(0)}%',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 16,
@@ -143,10 +143,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: 8),
             Slider(
               value: _offsetValue,
-              min: 0.0,
-              max: 2.0,
-              divisions: 20,
-              label: '${_offsetValue.toStringAsFixed(1)} EV',
+              min: -100.0,
+              max: 100.0,
+              divisions: 20, // Step de 10%: (-100 a +100) / 20 = 10
+              label: '${_offsetValue.toStringAsFixed(0)}%',
               activeColor: Colors.blue,
               onChanged: (value) {
                 setState(() {
@@ -157,8 +157,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('0.0', style: TextStyle(color: Colors.grey)),
-                Text('2.0', style: TextStyle(color: Colors.grey)),
+                Text('-100% (Escuro)', style: TextStyle(color: Colors.grey)),
+                Text('0%', style: TextStyle(color: Colors.grey)),
+                Text('+100% (Claro)', style: TextStyle(color: Colors.grey)),
               ],
             ),
           ],
