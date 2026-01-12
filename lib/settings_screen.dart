@@ -6,11 +6,13 @@ enum BrightnessModeConfig { off, auto, manual }
 class SettingsScreen extends StatefulWidget {
   final BrightnessModeConfig currentMode;
   final double currentOffset;
+  final bool currentShowVisualFeedback;
 
   const SettingsScreen({
     Key? key,
     required this.currentMode,
     required this.currentOffset,
+    required this.currentShowVisualFeedback,
   }) : super(key: key);
 
   @override
@@ -20,23 +22,27 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late BrightnessModeConfig _selectedMode;
   late double _offsetValue;
+  late bool _showVisualFeedback;
 
   @override
   void initState() {
     super.initState();
     _selectedMode = widget.currentMode;
     _offsetValue = widget.currentOffset;
+    _showVisualFeedback = widget.currentShowVisualFeedback;
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('brightnessMode', _selectedMode.index);
     await prefs.setDouble('brightnessPercent', _offsetValue);
+    await prefs.setBool('showVisualFeedback', _showVisualFeedback);
 
     if (mounted) {
       Navigator.pop(context, {
         'mode': _selectedMode,
         'offset': _offsetValue,
+        'showVisualFeedback': _showVisualFeedback,
       });
     }
   }
@@ -154,6 +160,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ],
+
+          SizedBox(height: 32),
+          Text(
+            'Feedback Visual',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 16),
+          SwitchListTile(
+            title: Text(
+              'Exibir feedback visual',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              'Mostra bolinhas de foco/brilho e contornos da face',
+              style: TextStyle(color: Colors.grey),
+            ),
+            value: _showVisualFeedback,
+            activeColor: Colors.blue,
+            onChanged: (value) {
+              setState(() {
+                _showVisualFeedback = value;
+              });
+            },
+          ),
 
           SizedBox(height: 32),
           ElevatedButton(

@@ -38,7 +38,7 @@ O aplicativo detecta rostos usando o Google ML Kit e aplica automaticamente foco
 - Após o foco ser aplicado, aguarda 150ms
 - No modo manual, aplica o brilho configurado pelo usuário
 - `CamerawesomePlugin.setBrightness()` é chamado com o valor convertido
-- Uma bolinha azul aparece na mesma posição do foco
+- Uma bolinha verde aparece na mesma posição do foco
 
 ### 4. Fallback: Foco no Centro (`_focusOnCenterWhenNoFace`)
 
@@ -57,7 +57,7 @@ O aplicativo detecta rostos usando o Google ML Kit e aplica automaticamente foco
 ## Feedback Visual
 
 - **Bolinha Vermelha**: Indica onde o foco foi aplicado (dura 300ms)
-- **Bolinha Azul**: Indica onde o brilho foi aplicado (dura 300ms, aparece após a vermelha desaparecer)
+- **Bolinha Verde**: Indica onde o brilho foi aplicado (dura 300ms, aparece após a vermelha desaparecer)
 
 ## Conversão de Coordenadas
 
@@ -78,5 +78,5 @@ O método `convertFromImage` do `AnalysisPreview` já faz a conversão correta d
 - `_focusOnDetectedFace`: Aplica foco e brilho quando rosto é detectado
 - `_focusOnCenterWhenNoFace`: Fallback para quando não há rosto
 - `_showFocusFeedbackAt`: Exibe bolinha vermelha de feedback
-- `_showBrightnessFeedbackAt`: Exibe bolinha azul de feedback
+- `_showBrightnessFeedbackAt`: Exibe bolinha verde de feedback
 - `_normalizedToScreenPosition`: Converte coordenadas normalizadas para coordenadas da tela

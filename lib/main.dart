@@ -123,6 +123,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
   double _brightnessPercent = 0.0;
+  bool _showVisualFeedback = false;
   
   double _brightnessPercentToValue(double percent) {
     return ((percent + 100.0) / 200.0).clamp(0.0, 1.0);
@@ -167,10 +168,12 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     final prefs = await SharedPreferences.getInstance();
     final modeIndex = prefs.getInt('brightnessMode') ?? BrightnessModeConfig.auto.index;
     final brightnessPercent = prefs.getDouble('brightnessPercent') ?? 0.0;
+    final showVisualFeedback = prefs.getBool('showVisualFeedback') ?? false;
 
     setState(() {
       _brightnessMode = BrightnessModeConfig.values[modeIndex];
       _brightnessPercent = brightnessPercent.clamp(-100.0, 100.0);
+      _showVisualFeedback = showVisualFeedback;
     });
   }
 
@@ -187,6 +190,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       cameraState: state,
       faceDetectionStream: _faceDetectionController.stream,
       preview: preview,
+      showVisualFeedback: _showVisualFeedback,
     );
   }
 
@@ -197,6 +201,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         builder: (context) => SettingsScreen(
           currentMode: _brightnessMode,
           currentOffset: _brightnessPercent,
+          currentShowVisualFeedback: _showVisualFeedback,
         ),
       ),
     );
@@ -204,11 +209,13 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     if (result != null) {
       final newMode = result['mode'] as BrightnessModeConfig;
       final newBrightness = result['offset'] as double;
+      final newShowVisualFeedback = result['showVisualFeedback'] as bool? ?? false;
 
       if (mounted) {
         setState(() {
           _brightnessMode = newMode;
           _brightnessPercent = newBrightness.clamp(-100.0, 100.0);
+          _showVisualFeedback = newShowVisualFeedback;
         });
       }
     }
@@ -357,7 +364,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         try {
           final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
           await CamerawesomePlugin.setBrightness(brightnessValue);
-          // Mostrar bolinha azul na mesma posição
+          // Mostrar bolinha verde na mesma posição
           await _showBrightnessFeedbackAt(normalizedPositionForFeedback);
         } catch (e) {
           log("Erro ao aplicar brightness: $e");
@@ -419,7 +426,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         try {
           final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
           await CamerawesomePlugin.setBrightness(brightnessValue);
-          // Mostrar bolinha azul no centro
+          // Mostrar bolinha verde no centro
           await _showBrightnessFeedbackAt(normalizedCenter);
         } catch (e) {
           log("Erro ao aplicar brightness: $e");
@@ -468,7 +475,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
               return _buildCameraLayout(state, preview);
             },
           ),
-          if (_showFocusFeedback && _focusPositionNormalized != null)
+          if (_showVisualFeedback && _showFocusFeedback && _focusPositionNormalized != null)
             Builder(
               builder: (context) {
                 final screenPosition = _normalizedToScreenPosition(_focusPositionNormalized!);
@@ -487,7 +494,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                 );
               },
             ),
-          if (_showBrightnessFeedback && _brightnessPositionNormalized != null)
+          if (_showVisualFeedback && _showBrightnessFeedback && _brightnessPositionNormalized != null)
             Builder(
               builder: (context) {
                 final screenPosition = _normalizedToScreenPosition(_brightnessPositionNormalized!);
@@ -499,7 +506,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                     width: 10,
                     height: 10,
                     decoration: const BoxDecoration(
-                      color: Colors.blue,
+                      color: Colors.green,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -527,11 +534,13 @@ class _FacePreviewDecorator extends StatelessWidget {
   final CameraState cameraState;
   final Stream<FaceDetectionModel> faceDetectionStream;
   final AnalysisPreview preview;
+  final bool showVisualFeedback;
 
   const _FacePreviewDecorator({
     required this.cameraState,
     required this.faceDetectionStream,
     required this.preview,
+    required this.showVisualFeedback,
   });
 
   @override
@@ -552,6 +561,10 @@ class _FacePreviewDecorator extends StatelessWidget {
                 return StreamBuilder<FaceDetectionModel>(
                   stream: faceDetectionStream,
                   builder: (_, faceModelSnapshot) {
+                    if (!showVisualFeedback) {
+                      return const SizedBox();
+                    }
+                    
                     if (!faceModelSnapshot.hasData || faceModelSnapshot.data!.img == null) {
                       return const SizedBox();
                     }
