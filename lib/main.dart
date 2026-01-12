@@ -9,7 +9,6 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'settings_screen.dart';
 
-// Extensão para converter AnalysisImage para InputImage
 extension MLKitUtils on AnalysisImage {
   InputImage toInputImage() {
     return when(
@@ -58,13 +57,11 @@ extension MLKitUtils on AnalysisImage {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Carrega a orientação salva ou usa Portrait como padrão
   final prefs = await SharedPreferences.getInstance();
   final orientationIndex =
       prefs.getInt('appOrientation') ?? AppOrientation.portrait.index;
   final savedOrientation = AppOrientation.values[orientationIndex];
 
-  // Aplica a orientação salva
   if (savedOrientation == AppOrientation.portrait) {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   } else {
@@ -133,10 +130,9 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   late StreamController<FaceDetectionModel> _faceDetectionController;
 
   BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
-  double _brightnessPercent = 0.0; // Brightness em percentual: -100% a +100% (padrão 0% = neutro)
+  double _brightnessPercent = 0.0;
   AppOrientation _currentOrientation = AppOrientation.portrait;
   
-  // Converte percentual (-100 a +100) para brightness do camerawesome (0.0 a 1.0)
   double _brightnessPercentToValue(double percent) {
     return ((percent + 100.0) / 200.0).clamp(0.0, 1.0);
   }
@@ -147,14 +143,12 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   @override
   void initState() {
     super.initState();
-    // Opções mais sensíveis para detectar rostos mesmo em condições adversas
     final options = FaceDetectorOptions(
-      performanceMode:
-          FaceDetectorMode.accurate, // Mais preciso, detecta melhor contra luz
-      enableContours: true, // Habilita contornos faciais
-      enableLandmarks: true, // Habilita landmarks (pontos faciais)
+      performanceMode: FaceDetectorMode.accurate,
+      enableContours: true,
+      enableLandmarks: true,
       enableClassification: false,
-      minFaceSize: 0.1, // Reduz o tamanho mínimo do rosto (mais sensível)
+      minFaceSize: 0.1,
     );
     _faceDetector = FaceDetector(options: options);
     _faceDetectionController = StreamController<FaceDetectionModel>.broadcast();
@@ -175,7 +169,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       _currentOrientation = AppOrientation.values[orientationIndex];
     });
 
-    // Aplica a orientação
     _applyOrientation(_currentOrientation);
   }
 
@@ -191,9 +184,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   Widget _buildCameraLayout(CameraState state, AnalysisPreview preview) {
-    // O previewRect será calculado no painter usando o canvas size
-    // para determinar onde a imagem cropped está realmente desenhada
-    // Retorna widget decorador que desenha os contornos
     return _FacePreviewDecorator(
       cameraState: state,
       faceDetectionStream: _faceDetectionController.stream,
@@ -218,7 +208,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       final newBrightness = result['offset'] as double;
       final newOrientation = result['orientation'] as AppOrientation;
 
-      // Se mudou a orientação, aplica a nova orientação
       if (_currentOrientation != newOrientation) {
         _applyOrientation(newOrientation);
       }
@@ -232,18 +221,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
 
-  String _rotationToString(InputImageRotation rotation) {
-    switch (rotation) {
-      case InputImageRotation.rotation0deg:
-        return '0°';
-      case InputImageRotation.rotation90deg:
-        return '90°';
-      case InputImageRotation.rotation180deg:
-        return '180°';
-      case InputImageRotation.rotation270deg:
-        return '270°';
-    }
-  }
 
   Future<void> _processCameraImage(AnalysisImage img) async {
     if (_isProcessing) return;
@@ -253,7 +230,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       final inputImage = img.toInputImage();
       final faces = await _faceDetector.processImage(inputImage);
 
-      // Emite resultado no stream para desenho dos contornos
       _faceDetectionController.add(
         FaceDetectionModel(
           faces: faces,
@@ -266,36 +242,15 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       if (faces.isNotEmpty) {
         final face = faces.first;
 
-        // ========== LOGS DAS COORDENADAS DO ML KIT ==========
-        log('═══════════════════════════════════════════════════════');
-        log('👁️ ML Kit - Rosto detectado');
-        log('📐 Tamanho da imagem: ${inputImage.metadata!.size.width.toStringAsFixed(1)}x${inputImage.metadata!.size.height.toStringAsFixed(1)}');
-        log('🔄 Rotação: ${_rotationToString(inputImage.metadata!.rotation)}');
-        log('📱 Orientação do app: ${_currentOrientation == AppOrientation.portrait ? "Portrait" : "Landscape"}');
-        log('🎯 Coordenadas do rosto (ML Kit):');
-        log('   left=${face.boundingBox.left.toStringAsFixed(1)}');
-        log('   top=${face.boundingBox.top.toStringAsFixed(1)}');
-        log('   width=${face.boundingBox.width.toStringAsFixed(1)}');
-        log('   height=${face.boundingBox.height.toStringAsFixed(1)}');
-        log('   right=${face.boundingBox.right.toStringAsFixed(1)}');
-        log('   bottom=${face.boundingBox.bottom.toStringAsFixed(1)}');
-        log('   center=(${face.boundingBox.center.dx.toStringAsFixed(1)}, ${face.boundingBox.center.dy.toStringAsFixed(1)})');
-        log('═══════════════════════════════════════════════════════');
+        log('👁️ Rosto detectado: ${face.boundingBox.width.toStringAsFixed(0)}x${face.boundingBox.height.toStringAsFixed(0)} @ (${face.boundingBox.center.dx.toStringAsFixed(0)}, ${face.boundingBox.center.dy.toStringAsFixed(0)})');
 
-        // Cancela o timer de fallback
         _noFaceTimer?.cancel();
         _noFaceTimer = null;
-
-        // Atualiza informações da imagem
         setState(() {
           _imageSizeRaw = inputImage.metadata!.size;
         });
-
-        // Ajusta foco em background (não bloqueia a UI)
         _adjustHardwareFocus(face.boundingBox, inputImage.metadata!.size);
       } else {
-        // Inicia timer de fallback se não há rosto (só se modo não for Off)
-        // e se não houver um timer já ativo (evita resetar a cada frame)
         if (_brightnessMode != BrightnessModeConfig.off) {
           if (_noFaceTimer == null || !_noFaceTimer!.isActive) {
             _startNoFaceTimer();
@@ -312,13 +267,9 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   Future<void> _adjustHardwareFocus(Rect faceRect, Size imageSize) async {
     if (_brightnessMode == BrightnessModeConfig.off) return;
 
-    // Calcula centro da face relativo à imagem (0.0 - 1.0)
-    double centerX = faceRect.center.dx;
-    double centerY = faceRect.center.dy;
-    double x = centerX / imageSize.width;
-    double y = centerY / imageSize.height;
+    var x = faceRect.center.dx / imageSize.width;
+    var y = faceRect.center.dy / imageSize.height;
 
-    // Ajuste para rotação e orientação
     bool isLandscape = _currentOrientation == AppOrientation.landscape;
 
     if (Platform.isAndroid) {
@@ -364,7 +315,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         androidFocusSettings: null,
       );
 
-      log('🎯 Foco aplicado no rosto: (${point.dx.toStringAsFixed(2)}, ${point.dy.toStringAsFixed(2)})');
+      log('🎯 Foco: (${point.dx.toStringAsFixed(2)}, ${point.dy.toStringAsFixed(2)})');
 
       if (_brightnessMode == BrightnessModeConfig.manual) {
         await Future.delayed(const Duration(milliseconds: 150));
@@ -413,10 +364,8 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     if (_brightnessMode == BrightnessModeConfig.off || !mounted) return;
 
     try {
-      // Ponto central da tela (0.5, 0.5)
       final centerPoint = Offset(0.5, 0.5);
       
-      // Usa um previewSize padrão (será ajustado pela câmera)
       final imageSize = _imageSizeRaw ?? const Size(1280, 720);
       PreviewSize previewSize;
       try {
@@ -440,11 +389,10 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         androidFocusSettings: null,
       );
 
-      log('🎯 Foco aplicado no centro: (${centerPoint.dx.toStringAsFixed(2)}, ${centerPoint.dy.toStringAsFixed(2)})');
+      log('🎯 Foco centro: (${centerPoint.dx.toStringAsFixed(2)}, ${centerPoint.dy.toStringAsFixed(2)})');
 
       await Future.delayed(const Duration(milliseconds: 150));
 
-      // Se modo Manual, aplica brightness configurado pelo usuário
       if (_brightnessMode == BrightnessModeConfig.manual) {
         try {
           final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
@@ -453,7 +401,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
           log("Erro ao aplicar brightness: $e");
         }
       } else if (_brightnessMode == BrightnessModeConfig.auto) {
-        // No modo Auto, reseta brightness para neutro (0.5 = 0%)
         try {
           await CamerawesomePlugin.setBrightness(0.5);
         } catch (e) {
@@ -461,7 +408,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         }
       }
 
-      // Feedback visual também no fallback
       setState(() {
         _brightnessJustApplied = true;
       });
@@ -489,24 +435,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   @override
   Widget build(BuildContext context) {
-    final mediaQuery = MediaQuery.of(context);
-    final screenSize = mediaQuery.size;
-    final orientation = mediaQuery.orientation;
-    
-    // Calcula aspect ratio da tela
-    final screenAspectRatio = screenSize.width / screenSize.height;
-    final expectedAspectRatio = 16.0 / 9.0;
-    
-    // Logs para entender o problema do landscape
-    log('═══════════════════════════════════════════════════════');
-    log('📱 Build - Orientação App: ${_currentOrientation == AppOrientation.portrait ? "Portrait" : "Landscape"}');
-    log('📱 Build - Orientação Física: ${orientation == Orientation.portrait ? "Portrait" : "Landscape"}');
-    log('📐 Tela: ${screenSize.width.toStringAsFixed(1)}x${screenSize.height.toStringAsFixed(1)}');
-    log('📐 Aspect Ratio da tela: ${screenAspectRatio.toStringAsFixed(3)}');
-    log('📐 Aspect Ratio esperado (16:9): ${expectedAspectRatio.toStringAsFixed(3)}');
-    log('📐 Diferença: ${(screenAspectRatio - expectedAspectRatio).abs().toStringAsFixed(3)}');
-    log('═══════════════════════════════════════════════════════');
-    
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -533,7 +461,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
               return _buildCameraLayout(state, preview);
             },
           ),
-          // Bolinha vermelha apenas no fallback (5 segundos sem rosto)
           if (_brightnessJustApplied)
             Center(
               child: Container(
@@ -545,7 +472,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
                 ),
               ),
             ),
-          // Ícone de configurações no canto superior direito
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             right: 8,
@@ -596,8 +522,6 @@ class _FacePreviewDecorator extends StatelessWidget {
                       return const SizedBox();
                     }
                     
-                    // Obtém a transformação de canvas necessária para converter a imagem para o preview
-                    // Android espelha o preview mas a imagem de análise não
                     final canvasTransformation = faceModelSnapshot.data!.img
                         ?.getCanvasTransformation(preview);
                     
@@ -636,129 +560,50 @@ class FaceContourPainter extends CustomPainter {
       return;
     }
     
-    // ========== LOGS PARA DEBUG DE ESCALA ==========
-    log('═══════════════════════════════════════════════════════');
-    log('🎨 FaceContourPainter.paint()');
-    log('📐 Canvas size: ${size.width.toStringAsFixed(1)}x${size.height.toStringAsFixed(1)}');
-    log('📐 Imagem análise (model.img): ${model.img!.width.toStringAsFixed(1)}x${model.img!.height.toStringAsFixed(1)}');
-    log('📐 Imagem absoluta: ${model.absoluteImageSize.width.toStringAsFixed(1)}x${model.absoluteImageSize.height.toStringAsFixed(1)}');
-    log('📐 Cropped size: ${model.croppedSize.width.toStringAsFixed(1)}x${model.croppedSize.height.toStringAsFixed(1)}');
-    log('🔄 Rotação: ${model.imageRotation}');
-    log('🔄 Canvas transformation: ${canvasTransformation != null ? "SIM" : "NÃO"}');
-    
-    // Aplica a transformação de canvas para que os contornos sejam desenhados
-    // na orientação correta (Android apenas)
     if (canvasTransformation != null) {
       canvas.save();
       canvas.applyTransformation(canvasTransformation!, size);
-      log('✅ Transformação de canvas aplicada');
     }
     
     if (preview == null) {
       return;
     }
     
-    // O convertFromImage já retorna coordenadas no espaço do previewSize
-    // Precisamos apenas mapear do previewSize para o canvas
     final previewSize = preview!.previewSize;
     final canvasSize = size;
-    
-    // Calcula a escala do previewSize para o canvas
     final scaleToCanvasX = canvasSize.width / previewSize.width;
     final scaleToCanvasY = canvasSize.height / previewSize.height;
     
-    log('📐 Preview size: ${previewSize.width.toStringAsFixed(1)}x${previewSize.height.toStringAsFixed(1)}');
-    log('📐 Canvas size: ${canvasSize.width.toStringAsFixed(1)}x${canvasSize.height.toStringAsFixed(1)}');
-    log('📐 Scale (preview->canvas): scaleX=${scaleToCanvasX.toStringAsFixed(3)} scaleY=${scaleToCanvasY.toStringAsFixed(3)}');
-    log('📐 Preview offset: (${preview!.offset.dx.toStringAsFixed(1)}, ${preview!.offset.dy.toStringAsFixed(1)})');
-    
-    // Processa cada face detectada
     for (final Face face in model.faces) {
-      log('👤 Processando face: ${model.faces.length} face(s) detectada(s)');
-      
-      // Inicializa um map de cada tipo de contorno para um Path
       Map<FaceContourType, Path> paths = {
         for (var fct in FaceContourType.values) fct: Path()
       };
       
-      // Itera sobre os contornos da face
-      int contourCount = 0;
       face.contours.forEach((contourType, faceContour) {
         if (faceContour != null && faceContour.points.isNotEmpty) {
-          contourCount++;
-          
-          // Log do primeiro ponto de cada contorno para debug (apenas os 3 primeiros)
-          if (contourCount <= 3) {
-            final firstPoint = faceContour.points.first;
-            final originalOffset = Offset(firstPoint.x.toDouble(), firstPoint.y.toDouble());
-            
-            Offset canvasPoint;
-            if (preview != null && model.img != null) {
-              // O convertFromImage retorna coordenadas no espaço do previewSize
-              // (já com scale e offset aplicados para centralizar)
-              final pointInPreview = preview!.convertFromImage(originalOffset, model.img!);
-              
-              // Mapeia do previewSize para o canvas
-              canvasPoint = Offset(
-                pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
-                pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
-              );
-              
-              log('   Contorno $contourType: ${faceContour.points.length} pontos');
-              log('      Original (imagem): (${originalOffset.dx.toStringAsFixed(1)}, ${originalOffset.dy.toStringAsFixed(1)})');
-              log('      Preview (convertFromImage): (${pointInPreview.dx.toStringAsFixed(1)}, ${pointInPreview.dy.toStringAsFixed(1)})');
-              log('      Canvas: (${canvasPoint.dx.toStringAsFixed(1)}, ${canvasPoint.dy.toStringAsFixed(1)})');
-              log('      Scale (preview->canvas): X=${scaleToCanvasX.toStringAsFixed(3)} Y=${scaleToCanvasY.toStringAsFixed(3)}');
-            } else {
-              canvasPoint = originalOffset;
-              log('   Contorno $contourType: ${faceContour.points.length} pontos');
-              log('      Original (imagem): (${originalOffset.dx.toStringAsFixed(1)}, ${originalOffset.dy.toStringAsFixed(1)})');
-              log('      Canvas (sem conversão): (${canvasPoint.dx.toStringAsFixed(1)}, ${canvasPoint.dy.toStringAsFixed(1)})');
-            }
-          }
-          
-          // Converte as coordenadas originais do ML Kit para o espaço do canvas
-          // As coordenadas originais estão no espaço da imagem (1072x1072)
-          // Precisamos convertê-las para o espaço do canvas usando convertFromImage
           final canvasPoints = faceContour.points
               .map(
                 (element) {
                   final originalPoint = Offset(element.x.toDouble(), element.y.toDouble());
-                  if (preview != null && model.img != null) {
-                    // O convertFromImage retorna coordenadas no espaço do previewSize
-                    // (já com scale e offset aplicados para centralizar)
-                    final pointInPreview = preview!.convertFromImage(originalPoint, model.img!);
-                    
-                    // Mapeia do previewSize para o canvas
-                    return Offset(
-                      pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
-                      pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
-                    );
-                  } else {
-                    // Se não tiver preview, usa as coordenadas originais (não ideal)
-                    return originalPoint;
-                  }
+                  final pointInPreview = preview!.convertFromImage(originalPoint, model.img!);
+                  return Offset(
+                    pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
+                    pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
+                  );
                 },
               )
               .toList();
           
           paths[contourType]!.addPolygon(canvasPoints, true);
           
-          // Desenha um círculo azul em cada ponto do contorno
           for (var point in canvasPoints) {
-            canvas.drawCircle(
-              point,
-              4,
-              Paint()..color = Colors.blue,
-            );
+            canvas.drawCircle(point, 4, Paint()..color = Colors.blue);
           }
         }
       });
       
-      // Remove contornos vazios
       paths.removeWhere((key, value) => value.getBounds().isEmpty);
       
-      // Desenha os contornos encontrados como linhas laranjas
       for (var p in paths.entries) {
         canvas.drawPath(
           p.value,
@@ -770,12 +615,9 @@ class FaceContourPainter extends CustomPainter {
       }
     }
     
-    // Restaura o canvas se a transformação foi aplicada
     if (canvasTransformation != null) {
       canvas.restore();
     }
-    
-    log('═══════════════════════════════════════════════════════');
   }
 
   @override
