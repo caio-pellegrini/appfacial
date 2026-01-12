@@ -1,4 +1,5 @@
 # Documentação: Sistema de Rotação da Câmera
+(Aviso: documentação legada - o sistema de rotação foi removido)
 
 ## Visão Geral
 

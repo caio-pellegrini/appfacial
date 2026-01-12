@@ -118,7 +118,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   bool _showBrightnessFeedback = false;
   Timer? _brightnessFeedbackTimer;
 
-  Size? _imageSizeRaw;
   late StreamController<FaceDetectionModel> _faceDetectionController;
 
   BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
@@ -247,9 +246,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
         _noFaceTimer?.cancel();
         _noFaceTimer = null;
-        setState(() {
-          _imageSizeRaw = inputImage.metadata!.size;
-        });
         _focusOnDetectedFace(face.boundingBox, inputImage.metadata!.size, img);
       } else {
         if (_brightnessMode != BrightnessModeConfig.off) {
