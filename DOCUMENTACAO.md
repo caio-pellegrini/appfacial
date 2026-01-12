@@ -281,7 +281,7 @@ O `CameraPreview` usa `BoxFit.cover`, o que significa:
 1. **Performance**: O processamento é feito em background, mas pode ser pesado em dispositivos antigos
 2. **Rotação**: A lógica de rotação é complexa e pode ter bugs em alguns dispositivos
 3. **Threading**: Tudo roda na thread principal (UI thread), o que pode causar lag
-4. **Logs**: O código tem muitos `print()` para debug (linhas 216-231, 602-752)
+4. **Logs**: O código tem muitos `log()` para debug (linhas 216-231, 602-752)
 
 ---
 
