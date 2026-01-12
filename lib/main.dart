@@ -191,21 +191,13 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   Widget _buildCameraLayout(CameraState state, AnalysisPreview preview) {
-    // Calcula o previewRect a partir do AnalysisPreview
-    // O previewRect é a área onde o preview está desenhado no canvas
-    final previewRect = Rect.fromLTWH(
-      preview.offset.dx,
-      preview.offset.dy,
-      preview.previewSize.width,
-      preview.previewSize.height,
-    );
-    
+    // O previewRect será calculado no painter usando o canvas size
+    // para determinar onde a imagem cropped está realmente desenhada
     // Retorna widget decorador que desenha os contornos
     return _FacePreviewDecorator(
       cameraState: state,
       faceDetectionStream: _faceDetectionController.stream,
       preview: preview,
-      previewRect: previewRect,
     );
   }
 
@@ -575,13 +567,11 @@ class _FacePreviewDecorator extends StatelessWidget {
   final CameraState cameraState;
   final Stream<FaceDetectionModel> faceDetectionStream;
   final AnalysisPreview preview;
-  final Rect previewRect;
 
   const _FacePreviewDecorator({
     required this.cameraState,
     required this.faceDetectionStream,
     required this.preview,
-    required this.previewRect,
   });
 
   @override
@@ -616,7 +606,6 @@ class _FacePreviewDecorator extends StatelessWidget {
                         model: faceModelSnapshot.requireData,
                         canvasTransformation: canvasTransformation,
                         preview: preview,
-                        previewRect: previewRect,
                       ),
                     );
                   },
@@ -634,38 +623,12 @@ class FaceContourPainter extends CustomPainter {
   final FaceDetectionModel model;
   final CanvasTransformation? canvasTransformation;
   final AnalysisPreview? preview;
-  final Rect previewRect;
 
   FaceContourPainter({
     required this.model,
     this.canvasTransformation,
     this.preview,
-    required this.previewRect,
   });
-
-  // Função auxiliar para converter coordenadas manualmente quando preview não está disponível
-  Offset _convertPointManually(Offset imagePoint, Size imageSize, Size croppedSize) {
-    // As coordenadas do ML Kit estão no espaço da imagem absoluta
-    // Precisamos converter para o espaço do cropped primeiro
-    // O cropped é a parte visível da imagem no preview
-    
-    // Calcula a posição relativa no cropped (0.0 a 1.0)
-    double xInCropped = imagePoint.dx / imageSize.width;
-    double yInCropped = imagePoint.dy / imageSize.height;
-    
-    // Converte para coordenadas do cropped
-    double xInCroppedSpace = xInCropped * croppedSize.width;
-    double yInCroppedSpace = yInCropped * croppedSize.height;
-    
-    // Aplica escala e offset do previewRect para converter para o canvas
-    final scaleX = previewRect.width / croppedSize.width;
-    final scaleY = previewRect.height / croppedSize.height;
-    
-    return Offset(
-      xInCroppedSpace * scaleX + previewRect.left,
-      yInCroppedSpace * scaleY + previewRect.top,
-    );
-  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -691,17 +654,23 @@ class FaceContourPainter extends CustomPainter {
       log('✅ Transformação de canvas aplicada');
     }
     
-    // Usa o previewRect fornecido diretamente pelo CamerAwesome
-    // O convertFromImage retorna coordenadas no espaço do cropped
-    final croppedSize = model.croppedSize;
+    if (preview == null) {
+      return;
+    }
     
-    // Calcula a escala do cropped para o previewRect
-    final scaleX = previewRect.width / croppedSize.width;
-    final scaleY = previewRect.height / croppedSize.height;
+    // O convertFromImage já retorna coordenadas no espaço do previewSize
+    // Precisamos apenas mapear do previewSize para o canvas
+    final previewSize = preview!.previewSize;
+    final canvasSize = size;
     
-    log('📐 Preview rect (fornecido): left=${previewRect.left.toStringAsFixed(1)} top=${previewRect.top.toStringAsFixed(1)} width=${previewRect.width.toStringAsFixed(1)} height=${previewRect.height.toStringAsFixed(1)}');
-    log('📐 Cropped size: ${croppedSize.width.toStringAsFixed(1)}x${croppedSize.height.toStringAsFixed(1)}');
-    log('📐 Scale: scaleX=${scaleX.toStringAsFixed(3)} scaleY=${scaleY.toStringAsFixed(3)}');
+    // Calcula a escala do previewSize para o canvas
+    final scaleToCanvasX = canvasSize.width / previewSize.width;
+    final scaleToCanvasY = canvasSize.height / previewSize.height;
+    
+    log('📐 Preview size: ${previewSize.width.toStringAsFixed(1)}x${previewSize.height.toStringAsFixed(1)}');
+    log('📐 Canvas size: ${canvasSize.width.toStringAsFixed(1)}x${canvasSize.height.toStringAsFixed(1)}');
+    log('📐 Scale (preview->canvas): scaleX=${scaleToCanvasX.toStringAsFixed(3)} scaleY=${scaleToCanvasY.toStringAsFixed(3)}');
+    log('📐 Preview offset: (${preview!.offset.dx.toStringAsFixed(1)}, ${preview!.offset.dy.toStringAsFixed(1)})');
     
     // Processa cada face detectada
     for (final Face face in model.faces) {
@@ -723,46 +692,62 @@ class FaceContourPainter extends CustomPainter {
             final firstPoint = faceContour.points.first;
             final originalOffset = Offset(firstPoint.x.toDouble(), firstPoint.y.toDouble());
             
-            Offset convertedOffset;
-            if (preview != null) {
-              // Usa convertFromImage se preview estiver disponível
-              convertedOffset = preview!.convertFromImage(originalOffset, model.img!);
+            Offset canvasPoint;
+            if (preview != null && model.img != null) {
+              // O convertFromImage retorna coordenadas no espaço do previewSize
+              // (já com scale e offset aplicados para centralizar)
+              final pointInPreview = preview!.convertFromImage(originalOffset, model.img!);
+              
+              // Mapeia do previewSize para o canvas
+              canvasPoint = Offset(
+                pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
+                pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
+              );
+              
+              log('   Contorno $contourType: ${faceContour.points.length} pontos');
+              log('      Original (imagem): (${originalOffset.dx.toStringAsFixed(1)}, ${originalOffset.dy.toStringAsFixed(1)})');
+              log('      Preview (convertFromImage): (${pointInPreview.dx.toStringAsFixed(1)}, ${pointInPreview.dy.toStringAsFixed(1)})');
+              log('      Canvas: (${canvasPoint.dx.toStringAsFixed(1)}, ${canvasPoint.dy.toStringAsFixed(1)})');
+              log('      Scale (preview->canvas): X=${scaleToCanvasX.toStringAsFixed(3)} Y=${scaleToCanvasY.toStringAsFixed(3)}');
             } else {
-              // Calcula manualmente se preview não estiver disponível
-              convertedOffset = _convertPointManually(originalOffset, model.absoluteImageSize, croppedSize);
+              canvasPoint = originalOffset;
+              log('   Contorno $contourType: ${faceContour.points.length} pontos');
+              log('      Original (imagem): (${originalOffset.dx.toStringAsFixed(1)}, ${originalOffset.dy.toStringAsFixed(1)})');
+              log('      Canvas (sem conversão): (${canvasPoint.dx.toStringAsFixed(1)}, ${canvasPoint.dy.toStringAsFixed(1)})');
             }
-            
-            log('   Contorno $contourType: ${faceContour.points.length} pontos');
-            log('      Original: (${originalOffset.dx.toStringAsFixed(1)}, ${originalOffset.dy.toStringAsFixed(1)})');
-            log('      Convertido: (${convertedOffset.dx.toStringAsFixed(1)}, ${convertedOffset.dy.toStringAsFixed(1)})');
           }
           
-          // Adiciona os pontos do contorno ao Path como polígono
-          final convertedPoints = faceContour.points
+          // Converte as coordenadas originais do ML Kit para o espaço do canvas
+          // As coordenadas originais estão no espaço da imagem (1072x1072)
+          // Precisamos convertê-las para o espaço do canvas usando convertFromImage
+          final canvasPoints = faceContour.points
               .map(
                 (element) {
-                  final imagePoint = Offset(element.x.toDouble(), element.y.toDouble());
-                  if (preview != null) {
-                    // Usa convertFromImage se preview estiver disponível
-                    final croppedPoint = preview!.convertFromImage(imagePoint, model.img!);
+                  final originalPoint = Offset(element.x.toDouble(), element.y.toDouble());
+                  if (preview != null && model.img != null) {
+                    // O convertFromImage retorna coordenadas no espaço do previewSize
+                    // (já com scale e offset aplicados para centralizar)
+                    final pointInPreview = preview!.convertFromImage(originalPoint, model.img!);
+                    
+                    // Mapeia do previewSize para o canvas
                     return Offset(
-                      croppedPoint.dx * scaleX + previewRect.left,
-                      croppedPoint.dy * scaleY + previewRect.top,
+                      pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
+                      pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
                     );
                   } else {
-                    // Calcula manualmente se preview não estiver disponível
-                    return _convertPointManually(imagePoint, model.absoluteImageSize, croppedSize);
+                    // Se não tiver preview, usa as coordenadas originais (não ideal)
+                    return originalPoint;
                   }
                 },
               )
               .toList();
           
-          paths[contourType]!.addPolygon(convertedPoints, true);
+          paths[contourType]!.addPolygon(canvasPoints, true);
           
           // Desenha um círculo azul em cada ponto do contorno
-          for (var canvasPosition in convertedPoints) {
+          for (var point in canvasPoints) {
             canvas.drawCircle(
-              canvasPosition,
+              point,
               4,
               Paint()..color = Colors.blue,
             );
