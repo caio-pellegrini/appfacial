@@ -57,19 +57,8 @@ extension MLKitUtils on AnalysisImage {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final prefs = await SharedPreferences.getInstance();
-  final orientationIndex =
-      prefs.getInt('appOrientation') ?? AppOrientation.portrait.index;
-  final savedOrientation = AppOrientation.values[orientationIndex];
-
-  if (savedOrientation == AppOrientation.portrait) {
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  } else {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-  }
+  // Permitir rotação automática do dispositivo
+  // A rotação adicional configurável será aplicada via RotatedBox com _cameraRotate
 
   runApp(
     const MaterialApp(
@@ -131,7 +120,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
 
   BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
   double _brightnessPercent = 0.0;
-  AppOrientation _currentOrientation = AppOrientation.portrait;
+  int _cameraRotate = 0;
   
   double _brightnessPercentToValue(double percent) {
     return ((percent + 100.0) / 200.0).clamp(0.0, 1.0);
@@ -159,28 +148,13 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     final prefs = await SharedPreferences.getInstance();
     final modeIndex = prefs.getInt('brightnessMode') ?? BrightnessModeConfig.auto.index;
     final brightnessPercent = prefs.getDouble('brightnessPercent') ?? 0.0;
-    
-    final orientationIndex =
-        prefs.getInt('appOrientation') ?? AppOrientation.portrait.index;
+    final cameraRotate = prefs.getInt('cameraRotate') ?? 0;
 
     setState(() {
       _brightnessMode = BrightnessModeConfig.values[modeIndex];
       _brightnessPercent = brightnessPercent.clamp(-100.0, 100.0);
-      _currentOrientation = AppOrientation.values[orientationIndex];
+      _cameraRotate = cameraRotate.clamp(0, 3);
     });
-
-    _applyOrientation(_currentOrientation);
-  }
-
-  void _applyOrientation(AppOrientation orientation) {
-    if (orientation == AppOrientation.portrait) {
-      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    } else {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    }
   }
 
   Widget _buildCameraLayout(CameraState state, AnalysisPreview preview) {
@@ -198,7 +172,7 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
         builder: (context) => SettingsScreen(
           currentMode: _brightnessMode,
           currentOffset: _brightnessPercent,
-          currentOrientation: _currentOrientation,
+          currentCameraRotate: _cameraRotate,
         ),
       ),
     );
@@ -206,17 +180,15 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     if (result != null) {
       final newMode = result['mode'] as BrightnessModeConfig;
       final newBrightness = result['offset'] as double;
-      final newOrientation = result['orientation'] as AppOrientation;
+      final newCameraRotate = result['cameraRotate'] as int;
 
-      if (_currentOrientation != newOrientation) {
-        _applyOrientation(newOrientation);
+      if (mounted) {
+        setState(() {
+          _brightnessMode = newMode;
+          _brightnessPercent = newBrightness.clamp(-100.0, 100.0);
+          _cameraRotate = newCameraRotate.clamp(0, 3);
+        });
       }
-
-      setState(() {
-        _brightnessMode = newMode;
-        _brightnessPercent = newBrightness.clamp(-100.0, 100.0);
-        _currentOrientation = newOrientation;
-      });
     }
   }
 
@@ -270,23 +242,52 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
     var x = faceRect.center.dx / imageSize.width;
     var y = faceRect.center.dy / imageSize.height;
 
-    bool isLandscape = _currentOrientation == AppOrientation.landscape;
-
+    // Ajustar coordenadas baseado na rotação da câmera
+    // Cada quarterTurns representa 90 graus de rotação
     if (Platform.isAndroid) {
-      if (isLandscape) {
-        double tempX = x;
-        x = 1.0 - y;
-        y = tempX;
-      } else {
-        double tempX = x;
-        x = y;
-        y = 1.0 - tempX;
+      // Para Android, aplicar transformações baseadas em _cameraRotate
+      switch (_cameraRotate) {
+        case 0: // 0° - sem rotação
+          double tempX = x;
+          x = y;
+          y = 1.0 - tempX;
+          break;
+        case 1: // 90° - sentido horário
+          double tempX = x;
+          x = 1.0 - y;
+          y = tempX;
+          break;
+        case 2: // 180°
+          double tempX = x;
+          x = 1.0 - y;
+          y = 1.0 - tempX;
+          break;
+        case 3: // 270° (ou -90°)
+          double tempX = x;
+          x = y;
+          y = tempX;
+          break;
       }
     } else if (Platform.isIOS) {
-      if (isLandscape) {
-        double tempX = x;
-        x = y;
-        y = 1.0 - tempX;
+      // Para iOS, aplicar transformações baseadas em _cameraRotate
+      switch (_cameraRotate) {
+        case 0: // 0° - sem rotação
+          // Sem transformação adicional
+          break;
+        case 1: // 90° - sentido horário
+          double tempX = x;
+          x = y;
+          y = 1.0 - tempX;
+          break;
+        case 2: // 180°
+          x = 1.0 - x;
+          y = 1.0 - y;
+          break;
+        case 3: // 270° (ou -90°)
+          double tempX = x;
+          x = 1.0 - y;
+          y = tempX;
+          break;
       }
     }
 
@@ -440,26 +441,29 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          CameraAwesomeBuilder.custom(
-            saveConfig: SaveConfig.photo(),
-            previewFit: CameraPreviewFit.contain,
-            sensorConfig: SensorConfig.single(
-              aspectRatio: CameraAspectRatios.ratio_4_3,
-              flashMode: FlashMode.auto,
-              sensor: Sensor.position(SensorPosition.front),
-              zoom: 1.0,
-            ),
-            onImageForAnalysis: (img) => _processCameraImage(img),
-            imageAnalysisConfig: AnalysisConfig(
-              androidOptions: const AndroidAnalysisOptions.nv21(
-                width: 1024,
+          RotatedBox(
+            quarterTurns: _cameraRotate,
+            child: CameraAwesomeBuilder.custom(
+              saveConfig: SaveConfig.photo(),
+              previewFit: CameraPreviewFit.contain,
+              sensorConfig: SensorConfig.single(
+                aspectRatio: CameraAspectRatios.ratio_4_3,
+                flashMode: FlashMode.auto,
+                sensor: Sensor.position(SensorPosition.front),
+                zoom: 1.0,
               ),
-              maxFramesPerSecond: 5,
-              autoStart: true,
+              onImageForAnalysis: (img) => _processCameraImage(img),
+              imageAnalysisConfig: AnalysisConfig(
+                androidOptions: const AndroidAnalysisOptions.nv21(
+                  width: 1024,
+                ),
+                maxFramesPerSecond: 5,
+                autoStart: true,
+              ),
+              builder: (CameraState state, AnalysisPreview preview) {
+                return _buildCameraLayout(state, preview);
+              },
             ),
-            builder: (CameraState state, AnalysisPreview preview) {
-              return _buildCameraLayout(state, preview);
-            },
           ),
           if (_brightnessJustApplied)
             Center(
@@ -615,9 +619,7 @@ class FaceContourPainter extends CustomPainter {
       }
     }
     
-    if (canvasTransformation != null) {
-      canvas.restore();
-    }
+    if (canvasTransformation != null) { canvas.restore(); }
   }
 
   @override

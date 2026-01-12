@@ -4,18 +4,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum BrightnessModeConfig { off, auto, manual }
 
-enum AppOrientation { portrait, landscape }
-
 class SettingsScreen extends StatefulWidget {
   final BrightnessModeConfig currentMode;
   final double currentOffset;
-  final AppOrientation currentOrientation;
+  final int currentCameraRotate;
 
   const SettingsScreen({
     Key? key,
     required this.currentMode,
     required this.currentOffset,
-    required this.currentOrientation,
+    required this.currentCameraRotate,
   }) : super(key: key);
 
   @override
@@ -25,27 +23,27 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late BrightnessModeConfig _selectedMode;
   late double _offsetValue;
-  late AppOrientation _selectedOrientation;
+  late int _cameraRotate;
 
   @override
   void initState() {
     super.initState();
     _selectedMode = widget.currentMode;
     _offsetValue = widget.currentOffset;
-    _selectedOrientation = widget.currentOrientation;
+    _cameraRotate = widget.currentCameraRotate.clamp(0, 3);
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('brightnessMode', _selectedMode.index);
     await prefs.setDouble('brightnessPercent', _offsetValue);
-    await prefs.setInt('appOrientation', _selectedOrientation.index);
+    await prefs.setInt('cameraRotate', _cameraRotate);
 
     if (mounted) {
       Navigator.pop(context, {
         'mode': _selectedMode,
         'offset': _offsetValue,
-        'orientation': _selectedOrientation,
+        'cameraRotate': _cameraRotate,
       });
     }
   }
@@ -168,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Divider(color: Colors.grey[800], height: 1),
           SizedBox(height: 32),
           Text(
-            'Orientação',
+            'Rotação da Câmera',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,
@@ -176,45 +174,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           SizedBox(height: 16),
-
-          // Opção Portrait
-          RadioListTile<AppOrientation>(
-            title: Text(
-              'Retrato (Portrait)',
-              style: TextStyle(color: Colors.white),
+          Text(
+            'Selecione a rotação da câmera (em incrementos de 90°)',
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
             ),
-            subtitle: Text(
-              'Orientação vertical',
-              style: TextStyle(color: Colors.grey),
-            ),
-            value: AppOrientation.portrait,
-            groupValue: _selectedOrientation,
-            activeColor: Colors.blue,
-            onChanged: (value) {
-              setState(() {
-                _selectedOrientation = value!;
-              });
-            },
           ),
-
-          // Opção Landscape
-          RadioListTile<AppOrientation>(
-            title: Text(
-              'Paisagem (Landscape)',
+          SizedBox(height: 16),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[700]!),
+            ),
+            child: DropdownButton<int>(
+              value: _cameraRotate,
+              isExpanded: true,
+              dropdownColor: Colors.grey[900],
               style: TextStyle(color: Colors.white),
+              underline: SizedBox(),
+              items: [
+                DropdownMenuItem<int>(
+                  value: 0,
+                  child: Text('0°'),
+                ),
+                DropdownMenuItem<int>(
+                  value: 1,
+                  child: Text('90°'),
+                ),
+                DropdownMenuItem<int>(
+                  value: 2,
+                  child: Text('180°'),
+                ),
+                DropdownMenuItem<int>(
+                  value: 3,
+                  child: Text('270°'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _cameraRotate = value;
+                  });
+                }
+              },
             ),
-            subtitle: Text(
-              'Orientação horizontal',
-              style: TextStyle(color: Colors.grey),
-            ),
-            value: AppOrientation.landscape,
-            groupValue: _selectedOrientation,
-            activeColor: Colors.blue,
-            onChanged: (value) {
-              setState(() {
-                _selectedOrientation = value!;
-              });
-            },
           ),
 
           SizedBox(height: 32),
