@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  camerawesome: ^2.1.0
+  camerawesome: ^2.5.0
   google_mlkit_face_detection: ^0.12.0
   shared_preferences: ^2.2.2
 

@@ -98,13 +98,13 @@ class FaceDetectionModel {
 }
 
 class FaceAwareCamera extends StatefulWidget {
-  const FaceAwareCamera({Key? key}) : super(key: key);
+  const FaceAwareCamera({super.key});
 
   @override
-  _FaceAwareCameraState createState() => _FaceAwareCameraState();
+  FaceAwareCameraState createState() => FaceAwareCameraState();
 }
 
-class _FaceAwareCameraState extends State<FaceAwareCamera> {
+class FaceAwareCameraState extends State<FaceAwareCamera> {
   late FaceDetector _faceDetector;
   bool _isProcessing = false;
   Timer? _noFaceTimer;
@@ -457,7 +457,6 @@ class _FaceAwareCameraState extends State<FaceAwareCamera> {
               aspectRatio: CameraAspectRatios.ratio_4_3,
               flashMode: FlashMode.auto,
               sensor: Sensor.position(SensorPosition.front),
-              zoom: 1.0,
             ),
             onImageForAnalysis: (img) => _processCameraImage(img),
             imageAnalysisConfig: AnalysisConfig(

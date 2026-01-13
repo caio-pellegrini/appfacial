@@ -55,7 +55,6 @@ CameraAwesomeBuilder.custom(
     aspectRatio: CameraAspectRatios.ratio_4_3,
     flashMode: FlashMode.auto,
     sensor: Sensor.position(SensorPosition.front),
-    zoom: 1.0,
   ),
   onImageForAnalysis: (img) => _processCameraImage(img),
   imageAnalysisConfig: AnalysisConfig(

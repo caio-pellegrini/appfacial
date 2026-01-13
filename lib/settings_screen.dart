@@ -9,17 +9,17 @@ class SettingsScreen extends StatefulWidget {
   final bool currentShowVisualFeedback;
 
   const SettingsScreen({
-    Key? key,
+    super.key,
     required this.currentMode,
     required this.currentOffset,
     required this.currentShowVisualFeedback,
-  }) : super(key: key);
+  });
 
   @override
-  _SettingsScreenState createState() => _SettingsScreenState();
+  SettingsScreenState createState() => SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class SettingsScreenState extends State<SettingsScreen> {
   late BrightnessModeConfig _selectedMode;
   late double _offsetValue;
   late bool _showVisualFeedback;
@@ -72,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Opção Off
           RadioListTile<BrightnessModeConfig>(
             title: Text(
-              'Desligado (Off)',
+              'Desligado',
               style: TextStyle(color: Colors.white),
             ),
             subtitle: Text(
@@ -92,7 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Opção Auto
           RadioListTile<BrightnessModeConfig>(
             title: Text(
-              'Automático (Auto)',
+              'Automático (Recomendado)',
               style: TextStyle(color: Colors.white),
             ),
             subtitle: Text(
