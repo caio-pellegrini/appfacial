@@ -28,7 +28,7 @@ class SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _selectedMode = widget.currentMode;
-    _offsetValue = widget.currentOffset;
+    _offsetValue = widget.currentOffset.clamp(0.0, 100.0);
     _showVisualFeedback = widget.currentShowVisualFeedback;
   }
 
@@ -140,23 +140,29 @@ class SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: 8),
             Slider(
               value: _offsetValue,
-              min: -100.0,
+              min: 0.0,
               max: 100.0,
-              divisions: 20, // Step de 10%: (-100 a +100) / 20 = 10
               label: '${_offsetValue.toStringAsFixed(0)}%',
               activeColor: Colors.blue,
               onChanged: (value) {
                 setState(() {
-                  _offsetValue = value;
+                  // Efeito de "snap" no 50: se estiver entre 45 e 55, gruda no 50
+                  const snapZone = 5.0; // Zona de tolerância de 5% de cada lado
+                  const snapValue = 50.0;
+                  if ((value - snapValue).abs() <= snapZone) {
+                    _offsetValue = snapValue;
+                  } else {
+                    _offsetValue = value;
+                  }
                 });
               },
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('-100% (Escuro)', style: TextStyle(color: Colors.grey)),
-                Text('0%', style: TextStyle(color: Colors.grey)),
-                Text('+100% (Claro)', style: TextStyle(color: Colors.grey)),
+                Text('0% (Escuro)', style: TextStyle(color: Colors.grey)),
+                Text('50%', style: TextStyle(color: Colors.grey)),
+                Text('100% (Claro)', style: TextStyle(color: Colors.grey)),
               ],
             ),
           ],

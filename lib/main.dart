@@ -112,33 +112,44 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
   AnalysisPreview? _currentPreview;
   Offset? _focusPositionNormalized;
   bool _showFocusFeedback = false;
-  Timer? _focusFeedbackTimer;
-  Completer<void>? _focusFeedbackCompleter;
-  Offset? _brightnessPositionNormalized;
-  bool _showBrightnessFeedback = false;
-  Timer? _brightnessFeedbackTimer;
 
   late StreamController<FaceDetectionModel> _faceDetectionController;
 
   BrightnessModeConfig _brightnessMode = BrightnessModeConfig.auto;
   double _brightnessPercent = 0.0;
   bool _showVisualFeedback = false;
-  
-  double _brightnessPercentToValue(double percent) {
-    return ((percent + 100.0) / 200.0).clamp(0.0, 1.0);
+  bool _brightnessApplied = false;
+  int _cameraKey = 0; // Key para forçar reconstrução da câmera
+
+  /// Aplica o brilho apenas se necessário (modo manual e ainda não foi aplicado)
+  Future<void> _applyBrightnessIfNeeded() async {
+    if (_brightnessMode != BrightnessModeConfig.manual ||
+        _brightnessApplied ||
+        _currentPreview == null) {
+      return;
+    }
+
+    try {
+      final brightnessValue = (_brightnessPercent / 100.0).clamp(0.0, 1.0);
+      await CamerawesomePlugin.setBrightness(brightnessValue);
+      _brightnessApplied = true;
+      log('✨ Brilho aplicado: ${brightnessValue.toStringAsFixed(2)}');
+    } catch (e) {
+      log("Erro ao aplicar brightness: $e");
+    }
   }
 
   Offset? _normalizedToScreenPosition(Offset normalizedPoint) {
     if (_currentPreview == null) return null;
-    
+
     final previewSize = _currentPreview!.previewSize;
     final screenSize = MediaQuery.of(context).size;
     final scaleX = screenSize.width / previewSize.width;
     final scaleY = screenSize.height / previewSize.height;
-    
+
     final previewPointX = normalizedPoint.dx * previewSize.width;
     final previewPointY = normalizedPoint.dy * previewSize.height;
-    
+
     return Offset(
       previewPointX * scaleX + _currentPreview!.offset.dx,
       previewPointY * scaleY + _currentPreview!.offset.dy,
@@ -146,7 +157,6 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   static const Duration _noFaceTimeout = Duration(seconds: 5);
-  static const Duration _brightnessFeedbackDuration = Duration(milliseconds: 300);
 
   @override
   void initState() {
@@ -165,15 +175,22 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final modeIndex = prefs.getInt('brightnessMode') ?? BrightnessModeConfig.auto.index;
+    final modeIndex =
+        prefs.getInt('brightnessMode') ?? BrightnessModeConfig.auto.index;
     final brightnessPercent = prefs.getDouble('brightnessPercent') ?? 0.0;
     final showVisualFeedback = prefs.getBool('showVisualFeedback') ?? false;
 
     setState(() {
       _brightnessMode = BrightnessModeConfig.values[modeIndex];
-      _brightnessPercent = brightnessPercent.clamp(-100.0, 100.0);
+      _brightnessPercent = brightnessPercent.clamp(0.0, 100.0);
       _showVisualFeedback = showVisualFeedback;
+      _brightnessApplied = false;
     });
+
+    // Aplicar brilho após carregar configurações se a câmera já estiver pronta
+    if (_currentPreview != null) {
+      _applyBrightnessIfNeeded();
+    }
   }
 
   Widget _buildCameraLayout(CameraState state, AnalysisPreview preview) {
@@ -181,10 +198,13 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
       if (mounted && _currentPreview != preview) {
         setState(() {
           _currentPreview = preview;
+          _brightnessApplied = false;
         });
+        // Aplicar brilho quando a câmera é inicializada
+        _applyBrightnessIfNeeded();
       }
     });
-    
+
     return _FacePreviewDecorator(
       cameraState: state,
       faceDetectionStream: _faceDetectionController.stream,
@@ -208,19 +228,35 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
     if (result != null) {
       final newMode = result['mode'] as BrightnessModeConfig;
       final newBrightness = result['offset'] as double;
-      final newShowVisualFeedback = result['showVisualFeedback'] as bool? ?? false;
+      final newShowVisualFeedback =
+          result['showVisualFeedback'] as bool? ?? false;
 
       if (mounted) {
+        final previousMode = _brightnessMode;
+
         setState(() {
           _brightnessMode = newMode;
-          _brightnessPercent = newBrightness.clamp(-100.0, 100.0);
+          _brightnessPercent = newBrightness.clamp(0.0, 100.0);
           _showVisualFeedback = newShowVisualFeedback;
+          _brightnessApplied = false;
         });
+
+        // Se mudou de manual para auto/off, reconstruir a câmera para resetar o brilho
+        if (previousMode == BrightnessModeConfig.manual &&
+            (newMode == BrightnessModeConfig.auto ||
+                newMode == BrightnessModeConfig.off)) {
+          setState(() {
+            _cameraKey++; // Incrementa a key para forçar reconstrução
+            _currentPreview = null; // Limpa o preview atual
+          });
+          log('🔄 Reconstruindo câmera para resetar brilho');
+        } else if (newMode == BrightnessModeConfig.manual) {
+          // Se mudou para manual, aplicar brilho quando a câmera estiver pronta
+          _applyBrightnessIfNeeded();
+        }
       }
     }
   }
-
-
 
   Future<void> _processCameraImage(AnalysisImage img) async {
     if (_isProcessing) return;
@@ -248,6 +284,8 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
         _noFaceTimer = null;
         _focusOnDetectedFace(face.boundingBox, inputImage.metadata!.size, img);
       } else {
+        // Esconder bolinha quando não há rosto
+        _hideFocusFeedback();
         if (_brightnessMode != BrightnessModeConfig.off) {
           if (_noFaceTimer == null || !_noFaceTimer!.isActive) {
             _startNoFaceTimer();
@@ -261,52 +299,26 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
     }
   }
 
-  Future<void> _showFocusFeedbackAt(Offset normalizedPosition) async {
-    _focusFeedbackTimer?.cancel();
-    _focusFeedbackCompleter = Completer<void>();
-    
+  void _showFocusFeedbackAt(Offset normalizedPosition) {
     setState(() {
       _focusPositionNormalized = normalizedPosition;
       _showFocusFeedback = true;
     });
-    
-    _focusFeedbackTimer = Timer(_brightnessFeedbackDuration, () {
-      if (mounted) {
-        setState(() {
-          _showFocusFeedback = false;
-        });
-        _focusFeedbackCompleter?.complete();
-        _focusFeedbackCompleter = null;
-      }
-    });
-    
-    return _focusFeedbackCompleter!.future;
   }
 
-  Future<void> _showBrightnessFeedbackAt(Offset normalizedPosition) async {
-    // Aguardar foco sumir se estiver visível
-    if (_showFocusFeedback && _focusFeedbackCompleter != null) {
-      await _focusFeedbackCompleter!.future;
+  void _hideFocusFeedback() {
+    if (mounted) {
+      setState(() {
+        _showFocusFeedback = false;
+        _focusPositionNormalized = null;
+      });
     }
-    
-    _brightnessFeedbackTimer?.cancel();
-    
-    setState(() {
-      _brightnessPositionNormalized = normalizedPosition;
-      _showBrightnessFeedback = true;
-    });
-    
-    _brightnessFeedbackTimer = Timer(_brightnessFeedbackDuration, () {
-      if (mounted) {
-        setState(() {
-          _showBrightnessFeedback = false;
-        });
-      }
-    });
   }
 
-  Future<void> _focusOnDetectedFace(Rect faceRect, Size imageSize, AnalysisImage analysisImage) async {
-    if (_brightnessMode == BrightnessModeConfig.off || _currentPreview == null) return;
+  Future<void> _focusOnDetectedFace(
+      Rect faceRect, Size imageSize, AnalysisImage analysisImage) async {
+    if (_brightnessMode == BrightnessModeConfig.off || _currentPreview == null)
+      return;
 
     try {
       final nativePreviewSize = _currentPreview!.nativePreviewSize;
@@ -315,18 +327,19 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
         width: nativePreviewSize.width,
         height: nativePreviewSize.height,
       );
-      
+
       final imageCenter = Offset(faceRect.center.dx, faceRect.center.dy);
-      final previewPoint = _currentPreview!.convertFromImage(imageCenter, analysisImage);
-      
+      final previewPoint =
+          _currentPreview!.convertFromImage(imageCenter, analysisImage);
+
       Offset focusPosition;
       AndroidFocusSettings? focusSettings;
       Offset normalizedPositionForFeedback;
-      
+
       if (Platform.isAndroid) {
         final normalizedX = previewPoint.dx / previewSizeFlutter.width;
         final normalizedY = previewPoint.dy / previewSizeFlutter.height;
-        
+
         // Inverter X para o preview nativo (não espelhado) para o foco
         final normalizedXInverted = 1.0 - normalizedX;
         focusPosition = Offset(
@@ -334,7 +347,7 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
           normalizedY * nativePreviewSize.height,
         );
         focusSettings = AndroidFocusSettings(autoCancelDurationInMillis: 5000);
-        
+
         // Inverter X também para o feedback visual (Stack não está espelhado)
         normalizedPositionForFeedback = Offset(1.0 - normalizedX, normalizedY);
       } else {
@@ -353,19 +366,7 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
 
       log('🎯 Foco: (${focusPosition.dx.toStringAsFixed(2)}, ${focusPosition.dy.toStringAsFixed(2)})');
 
-      await _showFocusFeedbackAt(normalizedPositionForFeedback);
-
-      if (_brightnessMode == BrightnessModeConfig.manual) {
-        await Future.delayed(const Duration(milliseconds: 150));
-        try {
-          final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
-          await CamerawesomePlugin.setBrightness(brightnessValue);
-          // Mostrar bolinha verde na mesma posição
-          await _showBrightnessFeedbackAt(normalizedPositionForFeedback);
-        } catch (e) {
-          log("Erro ao aplicar brightness: $e");
-        }
-      }
+      _showFocusFeedbackAt(normalizedPositionForFeedback);
     } catch (e) {
       log("Erro ao ajustar foco: $e");
     }
@@ -382,7 +383,9 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
   }
 
   Future<void> _focusOnCenterWhenNoFace() async {
-    if (_brightnessMode == BrightnessModeConfig.off || !mounted || _currentPreview == null) return;
+    if (_brightnessMode == BrightnessModeConfig.off ||
+        !mounted ||
+        _currentPreview == null) return;
 
     try {
       final nativePreviewSize = _currentPreview!.nativePreviewSize;
@@ -391,10 +394,10 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
         height: nativePreviewSize.height,
       );
       const normalizedCenter = Offset(0.5, 0.5);
-      
+
       Offset focusPosition;
       AndroidFocusSettings? focusSettings;
-      
+
       if (Platform.isAndroid) {
         focusPosition = Offset(
           nativePreviewSize.width * 0.5,
@@ -414,20 +417,7 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
 
       log('🎯 Foco centro: (${focusPosition.dx.toStringAsFixed(2)}, ${focusPosition.dy.toStringAsFixed(2)})');
 
-      await _showFocusFeedbackAt(normalizedCenter);
-
-      await Future.delayed(const Duration(milliseconds: 150));
-
-      if (_brightnessMode == BrightnessModeConfig.manual) {
-        try {
-          final brightnessValue = _brightnessPercentToValue(_brightnessPercent);
-          await CamerawesomePlugin.setBrightness(brightnessValue);
-          // Mostrar bolinha verde no centro
-          await _showBrightnessFeedbackAt(normalizedCenter);
-        } catch (e) {
-          log("Erro ao aplicar brightness: $e");
-        }
-      }
+      _showFocusFeedbackAt(normalizedCenter);
     } catch (e) {
       log("Erro ao ajustar brilho para centro: $e");
     }
@@ -436,8 +426,6 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
   @override
   void dispose() {
     _noFaceTimer?.cancel();
-    _focusFeedbackTimer?.cancel();
-    _brightnessFeedbackTimer?.cancel();
     _faceDetectionController.close();
     _faceDetector.close();
     super.dispose();
@@ -450,49 +438,37 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          CameraAwesomeBuilder.custom(
-            saveConfig: SaveConfig.photo(),
-            previewFit: CameraPreviewFit.contain,
-            sensorConfig: SensorConfig.single(
-              aspectRatio: CameraAspectRatios.ratio_4_3,
-              flashMode: FlashMode.auto,
-              sensor: Sensor.position(SensorPosition.front),
-            ),
-            onImageForAnalysis: (img) => _processCameraImage(img),
-            imageAnalysisConfig: AnalysisConfig(
-              androidOptions: const AndroidAnalysisOptions.nv21(
-                width: 1024,
+          // Widget wrapper com key para forçar reconstrução da câmera
+          SizedBox(
+            key: ValueKey(_cameraKey),
+            child: CameraAwesomeBuilder.custom(
+              saveConfig: SaveConfig.photo(),
+              previewFit: CameraPreviewFit.contain,
+              sensorConfig: SensorConfig.single(
+                aspectRatio: CameraAspectRatios.ratio_4_3,
+                flashMode: FlashMode.auto,
+                sensor: Sensor.position(SensorPosition.front),
               ),
-              maxFramesPerSecond: 5,
-              autoStart: true,
-            ),
-            builder: (CameraState state, AnalysisPreview preview) {
-              return _buildCameraLayout(state, preview);
-            },
-          ),
-          if (_showVisualFeedback && _showFocusFeedback && _focusPositionNormalized != null)
-            Builder(
-              builder: (context) {
-                final screenPosition = _normalizedToScreenPosition(_focusPositionNormalized!);
-                if (screenPosition == null) return const SizedBox();
-                return Positioned(
-                  left: screenPosition.dx - 5,
-                  top: screenPosition.dy - 5,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                );
+              onImageForAnalysis: (img) => _processCameraImage(img),
+              imageAnalysisConfig: AnalysisConfig(
+                androidOptions: const AndroidAnalysisOptions.nv21(
+                  width: 1024,
+                ),
+                maxFramesPerSecond: 5,
+                autoStart: true,
+              ),
+              builder: (CameraState state, AnalysisPreview preview) {
+                return _buildCameraLayout(state, preview);
               },
             ),
-          if (_showVisualFeedback && _showBrightnessFeedback && _brightnessPositionNormalized != null)
+          ),
+          if (_showVisualFeedback &&
+              _showFocusFeedback &&
+              _focusPositionNormalized != null)
             Builder(
               builder: (context) {
-                final screenPosition = _normalizedToScreenPosition(_brightnessPositionNormalized!);
+                final screenPosition =
+                    _normalizedToScreenPosition(_focusPositionNormalized!);
                 if (screenPosition == null) return const SizedBox();
                 return Positioned(
                   left: screenPosition.dx - 5,
@@ -501,7 +477,7 @@ class FaceAwareCameraState extends State<FaceAwareCamera> {
                     width: 10,
                     height: 10,
                     decoration: const BoxDecoration(
-                      color: Colors.green,
+                      color: Colors.white,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -559,14 +535,15 @@ class _FacePreviewDecorator extends StatelessWidget {
                     if (!showVisualFeedback) {
                       return const SizedBox();
                     }
-                    
-                    if (!faceModelSnapshot.hasData || faceModelSnapshot.data!.img == null) {
+
+                    if (!faceModelSnapshot.hasData ||
+                        faceModelSnapshot.data!.img == null) {
                       return const SizedBox();
                     }
-                    
+
                     final canvasTransformation = faceModelSnapshot.data!.img
                         ?.getCanvasTransformation(preview);
-                    
+
                     return CustomPaint(
                       painter: FaceContourPainter(
                         model: faceModelSnapshot.requireData,
@@ -601,51 +578,51 @@ class FaceContourPainter extends CustomPainter {
     if (model.img == null) {
       return;
     }
-    
+
     if (canvasTransformation != null) {
       canvas.save();
       canvas.applyTransformation(canvasTransformation!, size);
     }
-    
+
     if (preview == null) {
       return;
     }
-    
+
     final previewSize = preview!.previewSize;
     final canvasSize = size;
     final scaleToCanvasX = canvasSize.width / previewSize.width;
     final scaleToCanvasY = canvasSize.height / previewSize.height;
-    
+
     for (final Face face in model.faces) {
       Map<FaceContourType, Path> paths = {
         for (var fct in FaceContourType.values) fct: Path()
       };
-      
+
       face.contours.forEach((contourType, faceContour) {
         if (faceContour != null && faceContour.points.isNotEmpty) {
-          final canvasPoints = faceContour.points
-              .map(
-                (element) {
-                  final originalPoint = Offset(element.x.toDouble(), element.y.toDouble());
-                  final pointInPreview = preview!.convertFromImage(originalPoint, model.img!);
-                  return Offset(
-                    pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
-                    pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
-                  );
-                },
-              )
-              .toList();
-          
+          final canvasPoints = faceContour.points.map(
+            (element) {
+              final originalPoint =
+                  Offset(element.x.toDouble(), element.y.toDouble());
+              final pointInPreview =
+                  preview!.convertFromImage(originalPoint, model.img!);
+              return Offset(
+                pointInPreview.dx * scaleToCanvasX + preview!.offset.dx,
+                pointInPreview.dy * scaleToCanvasY + preview!.offset.dy,
+              );
+            },
+          ).toList();
+
           paths[contourType]!.addPolygon(canvasPoints, true);
-          
+
           for (var point in canvasPoints) {
             canvas.drawCircle(point, 4, Paint()..color = Colors.blue);
           }
         }
       });
-      
+
       paths.removeWhere((key, value) => value.getBounds().isEmpty);
-      
+
       for (var p in paths.entries) {
         canvas.drawPath(
           p.value,
@@ -656,8 +633,10 @@ class FaceContourPainter extends CustomPainter {
         );
       }
     }
-    
-    if (canvasTransformation != null) { canvas.restore(); }
+
+    if (canvasTransformation != null) {
+      canvas.restore();
+    }
   }
 
   @override
